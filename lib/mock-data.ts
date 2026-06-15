@@ -4,9 +4,54 @@ export interface StudentProfile {
   birthDate: string;
   nationality: string;
   occupation: string;
+  cpf: string;
+  cep: string;
+  street: string;
+  number: string;
+  complement: string;
+  neighborhood: string;
+  city: string;
+  state: string;
   learningGoal: string;
   classSchedule: string;
   teacherNotes: string;
+}
+
+export const LEVEL_LABELS: Record<string, string> = {
+  A1: "Beginner",
+  A2: "Pre-Intermediate",
+  B1: "Intermediate",
+  B2: "Upper-Intermediate",
+  C1: "Advanced",
+};
+
+export const AVATAR_PALETTE = [
+  { bg: "#E6F1FB", fg: "#0C447C" },
+  { bg: "#E1F5EE", fg: "#0F6E56" },
+  { bg: "#FAECE7", fg: "#993C1D" },
+  { bg: "#FBEAF0", fg: "#72243E" },
+  { bg: "#EEEDFE", fg: "#3C3489" },
+];
+
+const ADDED_STUDENTS_KEY = "added_students";
+
+export function loadAddedStudents(): Student[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = localStorage.getItem(ADDED_STUDENTS_KEY);
+    return raw ? (JSON.parse(raw) as Student[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+export function saveAddedStudent(student: Student): void {
+  const existing = loadAddedStudents();
+  localStorage.setItem(ADDED_STUDENTS_KEY, JSON.stringify([...existing, student]));
+}
+
+export function findStudent(id: string, added: Student[] = []): Student | undefined {
+  return students.find((s) => s.id === id) ?? added.find((s) => s.id === id);
 }
 
 export interface Student {
@@ -100,6 +145,14 @@ export const students: Student[] = [
       birthDate: "1999-07-14",
       nationality: "Brasileira",
       occupation: "Desenvolvedor de software",
+      cpf: "",
+      cep: "",
+      street: "",
+      number: "",
+      complement: "",
+      neighborhood: "",
+      city: "",
+      state: "",
       learningGoal: "Comunicação profissional em reuniões internacionais e leitura de documentação técnica em inglês.",
       classSchedule: "Terças e quintas, 19h",
       teacherNotes: "Aprende rápido mas tende a confundir tempos verbais do passado. Responde bem a exemplos do dia a dia de dev (commits, pull requests). Fica mais engajado quando o conteúdo tem aplicação prática imediata.",
@@ -124,6 +177,14 @@ export const students: Student[] = [
       birthDate: "2001-03-22",
       nationality: "Brasileira",
       occupation: "Estudante de Relações Internacionais",
+      cpf: "",
+      cep: "",
+      street: "",
+      number: "",
+      complement: "",
+      neighborhood: "",
+      city: "",
+      state: "",
       learningGoal: "Fluência para intercâmbio acadêmico na Europa e preparação para o IELTS.",
       classSchedule: "Segundas e quartas, 10h",
       teacherNotes: "Excelente pronúncia e ótima memória para vocabulário. Muito dedicada, sempre faz os exercícios antes da aula. Precisa trabalhar mais listening com sotaque britânico.",
@@ -148,6 +209,14 @@ export const students: Student[] = [
       birthDate: "1990-11-05",
       nationality: "Brasileira",
       occupation: "Gerente de logística",
+      cpf: "",
+      cep: "",
+      street: "",
+      number: "",
+      complement: "",
+      neighborhood: "",
+      city: "",
+      state: "",
       learningGoal: "Inglês básico para viagens internacionais e comunicação com fornecedores estrangeiros.",
       classSchedule: "Sábados, 9h",
       teacherNotes: "Dificuldade com pronúncia e timidez para falar. Precisa de incentivo constante. Recomendo retomar contato — sumiu após cancelar duas aulas seguidas em abril.",
@@ -172,6 +241,14 @@ export const students: Student[] = [
       birthDate: "1995-08-30",
       nationality: "Brasileira",
       occupation: "Designer UX/UI freelancer",
+      cpf: "",
+      cep: "",
+      street: "",
+      number: "",
+      complement: "",
+      neighborhood: "",
+      city: "",
+      state: "",
       learningGoal: "Alcançar fluência para trabalhar remotamente com clientes americanos e escrever portfólio em inglês.",
       classSchedule: "Terças e sextas, 14h",
       teacherNotes: "Uma das melhores alunas. Já apresenta fluência conversacional consistente. Foco agora em nuances de escrita formal e vocabulário de negócios.",
@@ -196,6 +273,14 @@ export const students: Student[] = [
       birthDate: "1997-01-18",
       nationality: "Brasileira",
       occupation: "Analista financeiro",
+      cpf: "",
+      cep: "",
+      street: "",
+      number: "",
+      complement: "",
+      neighborhood: "",
+      city: "",
+      state: "",
       learningGoal: "Inglês para negócios, leitura de relatórios internacionais e preparação para certificação Cambridge.",
       classSchedule: "Segundas e quintas, 18h30",
       teacherNotes: "Consistente mas precisa de mais disciplina com os exercícios em casa. Gosta de conteúdo relacionado a finanças e economia. Boa evolução nas últimas 4 semanas.",

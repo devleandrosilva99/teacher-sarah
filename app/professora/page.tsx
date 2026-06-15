@@ -1,30 +1,41 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Plus } from "lucide-react";
+import { Plus, UserPlus } from "lucide-react";
 import Card from "@/components/Card";
 import MetricCard from "@/components/MetricCard";
 import StudentRow from "@/components/StudentRow";
 import NewLessonModal, { ScheduledLesson } from "@/components/NewLessonModal";
+import NewStudentModal from "@/components/NewStudentModal";
 import ScheduledLessons from "@/components/ScheduledLessons";
-import { students } from "@/lib/mock-data";
+import { students, Student, loadAddedStudents } from "@/lib/mock-data";
 
 export default function ProfessoraPage() {
   const [search, setSearch] = useState("");
   const [levelFilter, setLevelFilter] = useState("all");
-  const [modalOpen, setModalOpen] = useState(false);
+  const [lessonModalOpen, setLessonModalOpen] = useState(false);
+  const [studentModalOpen, setStudentModalOpen] = useState(false);
   const [scheduledLessons, setScheduledLessons] = useState<ScheduledLesson[]>([]);
+  const [addedStudents, setAddedStudents] = useState<Student[]>([]);
 
   useEffect(() => {
     const stored = localStorage.getItem("scheduled_lessons");
     if (stored) setScheduledLessons(JSON.parse(stored));
+    setAddedStudents(loadAddedStudents());
   }, []);
 
-  function handleSaved(lesson: ScheduledLesson) {
+  function handleLessonSaved(lesson: ScheduledLesson) {
     setScheduledLessons((prev) => [...prev, lesson]);
   }
 
-  const filtered = students.filter((s) => {
+  function handleStudentSaved(student: Student) {
+    setAddedStudents((prev) => [...prev, student]);
+  }
+
+  const allStudents = [...students, ...addedStudents];
+  const totalCount = allStudents.length;
+
+  const filtered = allStudents.filter((s) => {
     const matchName = s.name.toLowerCase().includes(search.toLowerCase());
     const matchLevel = levelFilter === "all" || s.level === levelFilter;
     return matchName && matchLevel;
@@ -53,29 +64,51 @@ export default function ProfessoraPage() {
               Meus alunos
             </h2>
             <p style={{ fontSize: 13, color: "#6B6B6B", margin: "3px 0 0" }}>
-              23 alunos ativos
+              {totalCount} {totalCount === 1 ? "aluno" : "alunos"} {totalCount === 1 ? "ativo" : "ativos"}
             </p>
           </div>
-          <button
-            onClick={() => setModalOpen(true)}
-            aria-label="Agendar nova aula"
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 6,
-              fontSize: 13,
-              fontWeight: 500,
-              color: "#FFFFFF",
-              backgroundColor: "#1A1A1A",
-              border: "none",
-              borderRadius: 8,
-              padding: "8px 14px",
-              cursor: "pointer",
-            }}
-          >
-            <Plus size={15} />
-            Nova aula
-          </button>
+          <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
+            <button
+              onClick={() => setStudentModalOpen(true)}
+              aria-label="Cadastrar novo aluno"
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+                fontSize: 13,
+                fontWeight: 500,
+                color: "#1A1A1A",
+                backgroundColor: "#FFFFFF",
+                border: "0.5px solid rgba(0,0,0,0.12)",
+                borderRadius: 8,
+                padding: "8px 14px",
+                cursor: "pointer",
+              }}
+            >
+              <UserPlus size={15} />
+              Novo aluno
+            </button>
+            <button
+              onClick={() => setLessonModalOpen(true)}
+              aria-label="Agendar nova aula"
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+                fontSize: 13,
+                fontWeight: 500,
+                color: "#FFFFFF",
+                backgroundColor: "#1A1A1A",
+                border: "none",
+                borderRadius: 8,
+                padding: "8px 14px",
+                cursor: "pointer",
+              }}
+            >
+              <Plus size={15} />
+              Nova aula
+            </button>
+          </div>
         </div>
 
         <div
@@ -134,6 +167,7 @@ export default function ProfessoraPage() {
             <option value="A2">A2</option>
             <option value="B1">B1</option>
             <option value="B2">B2</option>
+            <option value="C1">C1</option>
           </select>
         </div>
 
@@ -171,10 +205,17 @@ export default function ProfessoraPage() {
         </Card>
       </div>
 
-      {modalOpen && (
+      {lessonModalOpen && (
         <NewLessonModal
-          onClose={() => setModalOpen(false)}
-          onSaved={handleSaved}
+          onClose={() => setLessonModalOpen(false)}
+          onSaved={handleLessonSaved}
+        />
+      )}
+
+      {studentModalOpen && (
+        <NewStudentModal
+          onClose={() => setStudentModalOpen(false)}
+          onSaved={handleStudentSaved}
         />
       )}
     </>

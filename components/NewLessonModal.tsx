@@ -1,8 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { X, Check } from "lucide-react";
-import { students } from "@/lib/mock-data";
+import { students, Student, loadAddedStudents } from "@/lib/mock-data";
 
 export interface ScheduledLesson {
   id: string;
@@ -49,8 +49,14 @@ const inputStyle: React.CSSProperties = {
 };
 
 export default function NewLessonModal({ onClose, onSaved }: NewLessonModalProps) {
+  const [allStudents, setAllStudents] = useState<Student[]>(students);
   const [studentId, setStudentId] = useState(students[0].id);
   const [date, setDate] = useState("");
+
+  useEffect(() => {
+    const added = loadAddedStudents();
+    if (added.length > 0) setAllStudents([...students, ...added]);
+  }, []);
   const [time, setTime] = useState("");
   const [duration, setDuration] = useState("60min");
   const [title, setTitle] = useState("");
@@ -70,7 +76,7 @@ export default function NewLessonModal({ onClose, onSaved }: NewLessonModalProps
   function handleSubmit() {
     if (!validate()) return;
 
-    const student = students.find((s) => s.id === studentId)!;
+    const student = allStudents.find((s) => s.id === studentId)!;
     const lesson: ScheduledLesson = {
       id: `${Date.now()}`,
       studentId,
@@ -200,7 +206,7 @@ export default function NewLessonModal({ onClose, onSaved }: NewLessonModalProps
                   onChange={(e) => setStudentId(e.target.value)}
                   style={{ ...inputStyle, cursor: "pointer" }}
                 >
-                  {students.map((s) => (
+                  {allStudents.map((s) => (
                     <option key={s.id} value={s.id}>{s.name} — {s.level}</option>
                   ))}
                 </select>

@@ -6,7 +6,7 @@ import { ArrowLeft, Pencil, Check, X } from "lucide-react";
 import Avatar from "@/components/Avatar";
 import Badge from "@/components/Badge";
 import Card from "@/components/Card";
-import { Student, StudentProfile } from "@/lib/mock-data";
+import { Student, StudentProfile, loadAddedStudents } from "@/lib/mock-data";
 
 const statusConfig = {
   "on-track": { variant: "success" as const, label: "Em dia" },
@@ -35,6 +35,15 @@ function age(iso: string): number {
   return a;
 }
 
+const sectionLabelStyle: React.CSSProperties = {
+  fontSize: 11,
+  fontWeight: 500,
+  color: "#9A9A9A",
+  letterSpacing: "0.06em",
+  textTransform: "uppercase",
+  marginTop: 8,
+};
+
 interface FieldProps {
   label: string;
   value: string;
@@ -42,9 +51,20 @@ interface FieldProps {
   multiline?: boolean;
   onChange: (v: string) => void;
   type?: string;
+  maxLength?: number;
+  placeholder?: string;
 }
 
-function Field({ label, value, editing, multiline, onChange, type = "text" }: FieldProps) {
+function Field({
+  label,
+  value,
+  editing,
+  multiline,
+  onChange,
+  type = "text",
+  maxLength,
+  placeholder,
+}: FieldProps) {
   const displayValue =
     type === "date" && value && !editing ? `${formatDate(value)} (${age(value)} anos)` : value;
 
@@ -67,6 +87,7 @@ function Field({ label, value, editing, multiline, onChange, type = "text" }: Fi
             value={value}
             onChange={(e) => onChange(e.target.value)}
             rows={3}
+            placeholder={placeholder}
             style={{
               fontSize: 14,
               color: "#1A1A1A",
@@ -85,6 +106,8 @@ function Field({ label, value, editing, multiline, onChange, type = "text" }: Fi
           <input
             type={type}
             value={value}
+            maxLength={maxLength}
+            placeholder={placeholder}
             onChange={(e) => onChange(e.target.value)}
             style={{
               fontSize: 14,
@@ -114,22 +137,80 @@ function Field({ label, value, editing, multiline, onChange, type = "text" }: Fi
   );
 }
 
-export default function StudentProfileClient({ student }: { student: Student }) {
-  const STORAGE_KEY = `student_profile_${student.id}`;
+interface StudentProfileClientProps {
+  id: string;
+  initialStudent: Student | null;
+}
+
+export default function StudentProfileClient({ id, initialStudent }: StudentProfileClientProps) {
+  const [student, setStudent] = useState<Student | null>(initialStudent);
+  const [loaded, setLoaded] = useState(initialStudent !== null);
 
   const [editing, setEditing] = useState(false);
   const [saved, setSaved] = useState(false);
-  const [profile, setProfile] = useState<StudentProfile>(student.profile);
-  const [draft, setDraft] = useState<StudentProfile>(student.profile);
+  const [profile, setProfile] = useState<StudentProfile | null>(initialStudent?.profile ?? null);
+  const [draft, setDraft] = useState<StudentProfile | null>(initialStudent?.profile ?? null);
 
   useEffect(() => {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    if (stored) {
-      const parsed = JSON.parse(stored) as StudentProfile;
-      setProfile(parsed);
-      setDraft(parsed);
+    let s = initialStudent;
+    if (!s) {
+      const added = loadAddedStudents();
+      s = added.find((x) => x.id === id) ?? null;
+      if (s) setStudent(s);
     }
-  }, [STORAGE_KEY]);
+    if (s) {
+      const stored = localStorage.getItem(`student_profile_${id}`);
+      if (stored) {
+        try {
+          const parsed = JSON.parse(stored) as StudentProfile;
+          setProfile(parsed);
+          setDraft(parsed);
+        } catch {
+          setProfile(s.profile);
+          setDraft(s.profile);
+        }
+      } else {
+        setProfile(s.profile);
+        setDraft(s.profile);
+      }
+    }
+    setLoaded(true);
+  }, [id, initialStudent]);
+
+  if (!loaded) {
+    return (
+      <div style={{ paddingTop: "2rem", textAlign: "center", color: "#9A9A9A", fontSize: 14 }}>
+        Carregando…
+      </div>
+    );
+  }
+
+  if (!student || !profile || !draft) {
+    return (
+      <div
+        style={{
+          paddingTop: "2rem",
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          gap: 12,
+        }}
+      >
+        <p style={{ fontSize: 14, color: "#6B6B6B", margin: 0 }}>Aluno não encontrado.</p>
+        <Link
+          href="/professora"
+          style={{
+            fontSize: 13,
+            color: "#0C447C",
+            textDecoration: "none",
+            fontWeight: 500,
+          }}
+        >
+          ← Voltar para meus alunos
+        </Link>
+      </div>
+    );
+  }
 
   function startEdit() {
     setDraft(profile);
@@ -143,20 +224,24 @@ export default function StudentProfileClient({ student }: { student: Student }) 
   }
 
   function saveEdit() {
+    if (!draft) return;
     setProfile(draft);
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(draft));
+    localStorage.setItem(`student_profile_${id}`, JSON.stringify(draft));
     setEditing(false);
     setSaved(true);
     setTimeout(() => setSaved(false), 2500);
   }
 
   function set(field: keyof StudentProfile) {
-    return (value: string) => setDraft((d) => ({ ...d, [field]: value }));
+    return (value: string) => setDraft((d) => (d ? { ...d, [field]: value } : d));
   }
 
   const data = editing ? draft : profile;
   const sc = statusConfig[student.status];
-  const percent = Math.round((student.lessonsCompleted / student.lessonsTotal) * 100);
+  const percent =
+    student.lessonsTotal > 0
+      ? Math.round((student.lessonsCompleted / student.lessonsTotal) * 100)
+      : 0;
   const color = barColor(student.status);
 
   return (
@@ -313,18 +398,7 @@ export default function StudentProfileClient({ student }: { student: Student }) 
       </Card>
 
       {/* Informações pessoais */}
-      <div
-        style={{
-          fontSize: 11,
-          fontWeight: 500,
-          color: "#9A9A9A",
-          letterSpacing: "0.06em",
-          textTransform: "uppercase",
-          marginTop: 8,
-        }}
-      >
-        Informações pessoais
-      </div>
+      <div style={sectionLabelStyle}>Informações pessoais</div>
       <Card>
         <div
           style={{
@@ -337,25 +411,33 @@ export default function StudentProfileClient({ student }: { student: Student }) 
           <Field label="Telefone / WhatsApp" value={data.phone} editing={editing} onChange={set("phone")} type="tel" />
           <Field label="Data de nascimento" value={data.birthDate} editing={editing} onChange={set("birthDate")} type="date" />
           <Field label="Nacionalidade" value={data.nationality} editing={editing} onChange={set("nationality")} />
-          <div style={{ gridColumn: "1 / -1" }}>
-            <Field label="Profissão / ocupação" value={data.occupation} editing={editing} onChange={set("occupation")} />
+          <Field label="CPF" value={data.cpf} editing={editing} onChange={set("cpf")} placeholder="000.000.000-00" />
+          <Field label="Profissão / ocupação" value={data.occupation} editing={editing} onChange={set("occupation")} />
+        </div>
+      </Card>
+
+      {/* Endereço */}
+      <div style={sectionLabelStyle}>Endereço</div>
+      <Card>
+        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "140px 1fr", gap: "16px 20px" }}>
+            <Field label="CEP" value={data.cep} editing={editing} onChange={set("cep")} placeholder="00000-000" />
+            <Field label="Rua / logradouro" value={data.street} editing={editing} onChange={set("street")} />
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "120px 1fr", gap: "16px 20px" }}>
+            <Field label="Número" value={data.number} editing={editing} onChange={set("number")} />
+            <Field label="Complemento" value={data.complement} editing={editing} onChange={set("complement")} placeholder="Apto, bloco, etc." />
+          </div>
+          <Field label="Bairro" value={data.neighborhood} editing={editing} onChange={set("neighborhood")} />
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 90px", gap: "16px 20px" }}>
+            <Field label="Cidade" value={data.city} editing={editing} onChange={set("city")} />
+            <Field label="UF" value={data.state} editing={editing} onChange={set("state")} maxLength={2} placeholder="SP" />
           </div>
         </div>
       </Card>
 
       {/* Aulas */}
-      <div
-        style={{
-          fontSize: 11,
-          fontWeight: 500,
-          color: "#9A9A9A",
-          letterSpacing: "0.06em",
-          textTransform: "uppercase",
-          marginTop: 8,
-        }}
-      >
-        Aulas e objetivos
-      </div>
+      <div style={sectionLabelStyle}>Aulas e objetivos</div>
       <Card>
         <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
           <Field
@@ -375,18 +457,7 @@ export default function StudentProfileClient({ student }: { student: Student }) 
       </Card>
 
       {/* Observações da professora */}
-      <div
-        style={{
-          fontSize: 11,
-          fontWeight: 500,
-          color: "#9A9A9A",
-          letterSpacing: "0.06em",
-          textTransform: "uppercase",
-          marginTop: 8,
-        }}
-      >
-        Observações da professora
-      </div>
+      <div style={sectionLabelStyle}>Observações da professora</div>
       <Card>
         <Field
           label="Notas internas"
