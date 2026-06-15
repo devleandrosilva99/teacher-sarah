@@ -1,26 +1,50 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+
+  --color-page: #f5f4ef;
+  --color-surface: #ffffff;
+  --color-surface-raised: #efede5;
+
+  --color-ink: #1a1a1a;
+  --color-ink-2: #6b6b6b;
+  --color-ink-3: #9a9a9a;
+
+  --color-success: #1d9e75;
+  --color-success-bg: #e1f5ee;
+  --color-success-fg: #0f6e56;
+
+  --color-warn: #ba7517;
+  --color-warn-bg: #faeeda;
+  --color-warn-fg: #854f0b;
+
+  --color-danger: #a32d2d;
+  --color-danger-bg: #fcebeb;
+
+  --color-violet: #534ab7;
+  --color-violet-bg: #eeedfe;
+  --color-violet-fg: #3c3489;
+
+  --color-sky: #378add;
+  --color-sky-bg: #e6f1fb;
+  --color-sky-fg: #0c447c;
+
+  --color-coral: #d85a30;
+  --color-coral-bg: #faece7;
+  --color-coral-fg: #993c1d;
+
+  --color-rose-bg: #fbeaf0;
+  --color-rose-fg: #72243e;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+* {
+  box-sizing: border-box;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background-color: #f5f4ef;
+  color: #1a1a1a;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
