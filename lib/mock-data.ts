@@ -375,6 +375,299 @@ export const lucasLessons: Lesson[] = [
   },
 ];
 
+const juliaLessons: Lesson[] = [
+  {
+    id: 22,
+    date: "10 de junho",
+    title: "Real conditionals in conversation",
+    duration: "60min",
+    status: "completed",
+    completionPercent: 100,
+    exercisesDone: 5,
+    exercisesTotal: 5,
+    teacherComment: "Ótima fluência aplicando 'if + present, will'. Continue praticando em situações reais.",
+    summary: [
+      "Trabalhamos zero e first conditionals em diálogos cotidianos, com foco em situações de trabalho e estudo.",
+    ],
+    vocabulary: [],
+    exercises: [],
+  },
+  {
+    id: 21,
+    date: "03 de junho",
+    title: "Travel stories: narrating past experiences",
+    duration: "60min",
+    status: "completed",
+    completionPercent: 95,
+    exercisesDone: 5,
+    exercisesTotal: 5,
+    teacherComment: "Narração fluida do intercâmbio — só ajuste pequenos detalhes de pronúncia em 'although'.",
+    summary: [
+      "Praticamos narrativa em past simple e past continuous para descrever viagens, com transições e marcadores temporais.",
+    ],
+    vocabulary: [],
+    exercises: [],
+  },
+  {
+    id: 20,
+    date: "27 de maio",
+    title: "Phrasal verbs with 'get' and 'take'",
+    duration: "60min",
+    status: "completed",
+    completionPercent: 90,
+    exercisesDone: 5,
+    exercisesTotal: 5,
+    teacherComment: "Muito bem! Revisa 'take after' vs 'take over' antes da próxima.",
+    summary: [
+      "Estudamos 12 phrasal verbs comuns com 'get' (get along, get over, get into) e 'take' (take after, take off, take over).",
+    ],
+    vocabulary: [],
+    exercises: [],
+  },
+];
+
+const rafaelLessons: Lesson[] = [
+  {
+    id: 8,
+    date: "12 de abril",
+    title: "Talking about your family",
+    duration: "60min",
+    status: "homework-pending",
+    completionPercent: 40,
+    exercisesDone: 2,
+    exercisesTotal: 5,
+    teacherComment: "Rafael, conseguimos avançar na aula mas faltou completar os exercícios. Vamos retomar?",
+    summary: [
+      "Apresentamos vocabulário de família (parents, siblings, cousins) e estruturas com 'have got' para descrever parentesco.",
+    ],
+    vocabulary: [],
+    exercises: [],
+  },
+  {
+    id: 7,
+    date: "05 de abril",
+    title: "Numbers, dates, and time",
+    duration: "60min",
+    status: "completed",
+    completionPercent: 80,
+    exercisesDone: 4,
+    exercisesTotal: 5,
+    teacherComment: "Boa evolução nos números até 100 — pratica mais os ordinais.",
+    summary: [
+      "Trabalhamos números cardinais e ordinais, dias da semana, meses e leitura de horas no formato 12h e 24h.",
+    ],
+    vocabulary: [],
+    exercises: [],
+  },
+  {
+    id: 6,
+    date: "29 de março",
+    title: "Greetings and self-introduction",
+    duration: "60min",
+    status: "completed",
+    completionPercent: 90,
+    exercisesDone: 5,
+    exercisesTotal: 5,
+    teacherComment: "Excelente primeira aula! Já consegue se apresentar com confiança.",
+    summary: [
+      "Primeira aula com cumprimentos formais e informais, perguntas básicas (What's your name? Where are you from?) e respostas curtas.",
+    ],
+    vocabulary: [],
+    exercises: [],
+  },
+];
+
+const marinaLessons: Lesson[] = [
+  {
+    id: 28,
+    date: "13 de junho",
+    title: "Persuasive presentations in English",
+    duration: "60min",
+    status: "completed",
+    completionPercent: 100,
+    exercisesDone: 5,
+    exercisesTotal: 5,
+    teacherComment: "Sua apresentação ficou impecável — pronta para clientes internacionais!",
+    summary: [
+      "Estruturamos uma pitch presentation com hook, problem, solution e call-to-action, com foco em linking phrases formais.",
+    ],
+    vocabulary: [],
+    exercises: [],
+  },
+  {
+    id: 27,
+    date: "06 de junho",
+    title: "Idioms for everyday conversation",
+    duration: "60min",
+    status: "completed",
+    completionPercent: 95,
+    exercisesDone: 5,
+    exercisesTotal: 5,
+    teacherComment: "Ótimo uso de 'on the same page' e 'hit the ground running' no role-play.",
+    summary: [
+      "Trabalhamos 15 idioms comuns em ambiente de trabalho remoto e situações sociais com clientes.",
+    ],
+    vocabulary: [],
+    exercises: [],
+  },
+  {
+    id: 26,
+    date: "30 de maio",
+    title: "Writing professional emails",
+    duration: "60min",
+    status: "completed",
+    completionPercent: 100,
+    exercisesDone: 5,
+    exercisesTotal: 5,
+    teacherComment: "Tom e estrutura excelentes. Pode usar como template nas próximas propostas.",
+    summary: [
+      "Praticamos estrutura de e-mails profissionais: opening, body, polite closing — e diferenças entre tom formal e semi-formal.",
+    ],
+    vocabulary: [],
+    exercises: [],
+  },
+];
+
+const pedroLessons: Lesson[] = [
+  {
+    id: 15,
+    date: "11 de junho",
+    title: "Past simple: regular vs irregular verbs",
+    duration: "60min",
+    status: "homework-pending",
+    completionPercent: 60,
+    exercisesDone: 3,
+    exercisesTotal: 5,
+    teacherComment: "Pedro, faltam os 2 últimos exercícios. Foco nos irregulares (go/went, take/took) antes da próxima!",
+    summary: [
+      "Revisamos formação do past simple para verbos regulares (-ed) e a lista dos 30 irregulares mais usados.",
+    ],
+    vocabulary: [],
+    exercises: [],
+  },
+  {
+    id: 14,
+    date: "04 de junho",
+    title: "Talking about financial habits",
+    duration: "60min",
+    status: "completed",
+    completionPercent: 80,
+    exercisesDone: 4,
+    exercisesTotal: 5,
+    teacherComment: "Vocabulário de finanças bem absorvido — bom uso de 'save up' e 'cut back on'.",
+    summary: [
+      "Vocabulário de finanças pessoais (budget, expenses, savings, debt) com phrasal verbs relacionados.",
+    ],
+    vocabulary: [],
+    exercises: [],
+  },
+  {
+    id: 13,
+    date: "28 de maio",
+    title: "Making and changing appointments",
+    duration: "60min",
+    status: "completed",
+    completionPercent: 85,
+    exercisesDone: 5,
+    exercisesTotal: 5,
+    teacherComment: "Role-play de reagendamento ficou natural. Continue praticando expressões corteses.",
+    summary: [
+      "Estruturas para marcar, confirmar e reagendar compromissos — com foco em polidez (would, could, I'm afraid…).",
+    ],
+    vocabulary: [],
+    exercises: [],
+  },
+];
+
+const GENERIC_ERROR_NOTES: ErrorNote[] = [
+  {
+    wrong: "I have went to school yesterday.",
+    wrongWord: "have went",
+    correct: "I went to school yesterday.",
+    correctWord: "went",
+  },
+  {
+    wrong: "She don't like coffee.",
+    wrongWord: "don't",
+    correct: "She doesn't like coffee.",
+    correctWord: "doesn't",
+  },
+];
+
+function generateEvolution(lessonsCompleted: number, target: number): number[] {
+  if (lessonsCompleted <= 1) return [];
+  const points = Math.min(lessonsCompleted, 13);
+  const start = Math.max(30, target - 30);
+  const arr: number[] = [];
+  for (let i = 0; i < points; i++) {
+    const ratio = i / Math.max(1, points - 1);
+    const base = start + (target - start) * ratio;
+    const jitter = (i % 3 === 0 ? 3 : i % 3 === 1 ? -2 : 1);
+    arr.push(Math.max(0, Math.min(100, Math.round(base + jitter))));
+  }
+  return arr;
+}
+
+function generateProgress(student: Student): StudentProgress {
+  const accuracy = student.averageScore;
+  const completed = student.lessonsCompleted;
+  const streak =
+    student.status === "inactive" ? 0 : student.status === "homework-pending" ? 4 : 9;
+  return {
+    level: student.level,
+    levelLabel: student.levelLabel,
+    progressPercent:
+      student.lessonsTotal > 0 ? Math.round((completed / student.lessonsTotal) * 100) : 0,
+    lessonsCompleted: completed,
+    lessonsTotal: student.lessonsTotal,
+    exercisesTotal: completed * 8,
+    streakDays: streak,
+    accuracyRate: accuracy,
+    wordsLearned: completed * 8,
+    hoursStudied: completed,
+    skills: {
+      grammar: Math.max(0, Math.min(100, accuracy + 4)),
+      vocabulary: Math.max(0, Math.min(100, accuracy + 7)),
+      reading: Math.max(0, Math.min(100, accuracy - 5)),
+      listening: Math.max(0, Math.min(100, accuracy - 16)),
+    },
+    evolution: generateEvolution(completed, accuracy),
+    errorNotes: completed > 0 ? GENERIC_ERROR_NOTES : [],
+  };
+}
+
+const HAND_CRAFTED_LESSONS: Record<string, Lesson[]> = {
+  lucas: lucasLessons,
+  julia: juliaLessons,
+  rafael: rafaelLessons,
+  marina: marinaLessons,
+  pedro: pedroLessons,
+};
+
+export function getStudentLessons(studentId: string): Lesson[] {
+  return HAND_CRAFTED_LESSONS[studentId] ?? [];
+}
+
+export function getStudentProgress(studentId: string, student?: Student): StudentProgress {
+  if (studentId === "lucas") return lucasProgress;
+  if (student) return generateProgress(student);
+  return {
+    level: "A1",
+    levelLabel: "Beginner",
+    progressPercent: 0,
+    lessonsCompleted: 0,
+    lessonsTotal: 0,
+    exercisesTotal: 0,
+    streakDays: 0,
+    accuracyRate: 0,
+    wordsLearned: 0,
+    hoursStudied: 0,
+    skills: { grammar: 0, vocabulary: 0, reading: 0, listening: 0 },
+    evolution: [],
+    errorNotes: [],
+  };
+}
+
 export const lucasProgress: StudentProgress = {
   level: "A2",
   levelLabel: "Pre-Intermediate",
