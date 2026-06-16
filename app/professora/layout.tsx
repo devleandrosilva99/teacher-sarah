@@ -1,12 +1,35 @@
-import Link from "next/link";
+"use client";
+
+import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import { LogOut } from "lucide-react";
 import TeacherAvatar from "@/components/TeacherAvatar";
-import { ArrowLeft } from "lucide-react";
+import { getSession, clearSession } from "@/lib/auth";
 
 export default function ProfessoraLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
+  const router = useRouter();
+  const [checked, setChecked] = useState(false);
+
+  useEffect(() => {
+    const s = getSession();
+    if (!s || s.role !== "professora") {
+      router.replace("/login");
+      return;
+    }
+    setChecked(true);
+  }, [router]);
+
+  function handleLogout() {
+    clearSession();
+    router.replace("/login");
+  }
+
+  if (!checked) return null;
+
   return (
     <div style={{ minHeight: "100vh", backgroundColor: "#F5F4EF" }}>
       <header
@@ -19,13 +42,6 @@ export default function ProfessoraLayout({
           borderBottom: "0.5px solid rgba(0,0,0,0.08)",
         }}
       >
-        <Link
-          href="/login"
-          aria-label="Voltar ao login"
-          style={{ color: "#6B6B6B", display: "flex" }}
-        >
-          <ArrowLeft size={20} />
-        </Link>
         <TeacherAvatar />
         <div style={{ flex: 1 }}>
           <div style={{ fontSize: 14, fontWeight: 500, color: "#1A1A1A" }}>
@@ -33,6 +49,21 @@ export default function ProfessoraLayout({
           </div>
           <div style={{ fontSize: 12, color: "#6B6B6B" }}>Teacher · Admin</div>
         </div>
+        <button
+          onClick={handleLogout}
+          aria-label="Sair"
+          style={{
+            background: "none",
+            border: "none",
+            cursor: "pointer",
+            padding: 6,
+            borderRadius: 8,
+            color: "#6B6B6B",
+            display: "flex",
+          }}
+        >
+          <LogOut size={20} />
+        </button>
       </header>
       <main style={{ padding: "0 1.25rem 2rem" }}>{children}</main>
     </div>

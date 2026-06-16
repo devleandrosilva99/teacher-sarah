@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { X, Check } from "lucide-react";
+import { X, Check, Eye, EyeOff } from "lucide-react";
 import {
   Student,
   StudentProfile,
@@ -10,6 +10,13 @@ import {
   loadAddedStudents,
   saveAddedStudent,
 } from "@/lib/mock-data";
+import {
+  emailExists,
+  saveExtraCredential,
+  EMAIL_MAX_LENGTH,
+  PASSWORD_MAX_LENGTH,
+  PASSWORD_MIN_LENGTH,
+} from "@/lib/auth";
 
 interface NewStudentModalProps {
   onClose: () => void;
@@ -132,6 +139,9 @@ export default function NewStudentModal({ onClose, onSaved }: NewStudentModalPro
   const [learningGoal, setLearningGoal] = useState("");
   const [teacherNotes, setTeacherNotes] = useState("");
 
+  const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [done, setDone] = useState(false);
 
@@ -149,9 +159,13 @@ export default function NewStudentModal({ onClose, onSaved }: NewStudentModalPro
     if (!name.trim()) e.name = "Informe o nome completo";
     if (!email.trim()) e.email = "Informe o e-mail";
     else if (!isValidEmail(email)) e.email = "E-mail inválido";
+    else if (emailExists(email)) e.email = "Já existe uma conta com esse e-mail";
     if (!phone.trim()) e.phone = "Informe o telefone";
     if (!cpf.trim()) e.cpf = "Informe o CPF";
     else if (!isValidCPF(cpf)) e.cpf = "CPF inválido";
+    if (!password) e.password = "Defina uma senha de acesso";
+    else if (password.length < PASSWORD_MIN_LENGTH)
+      e.password = `A senha precisa ter ao menos ${PASSWORD_MIN_LENGTH} caracteres`;
     const total = parseInt(lessonsTotal, 10);
     if (!total || total < 1) e.lessonsTotal = "Informe um número válido";
     setErrors(e);
@@ -201,6 +215,12 @@ export default function NewStudentModal({ onClose, onSaved }: NewStudentModalPro
     };
 
     saveAddedStudent(student);
+    saveExtraCredential({
+      email: email.trim().toLowerCase(),
+      password,
+      role: "aluno",
+      userId: student.id,
+    });
     setDone(true);
     setTimeout(() => {
       onSaved(student);
@@ -386,6 +406,7 @@ export default function NewStudentModal({ onClose, onSaved }: NewStudentModalPro
                 <input
                   id="ns-email"
                   type="email"
+                  maxLength={EMAIL_MAX_LENGTH}
                   placeholder="aluno@email.com"
                   value={email}
                   onChange={(e) => { setEmail(e.target.value); clearError("email"); }}
@@ -405,6 +426,58 @@ export default function NewStudentModal({ onClose, onSaved }: NewStudentModalPro
                   style={{ ...inputStyle, borderColor: borderColor("phone") }}
                 />
                 {errors.phone && <span style={errorTextStyle}>{errors.phone}</span>}
+              </div>
+
+              {/* Acesso */}
+              <div style={sectionLabelStyle}>Acesso do aluno</div>
+
+              <div>
+                <label htmlFor="ns-password" style={labelStyle}>Senha *</label>
+                <div style={{ position: "relative" }}>
+                  <input
+                    id="ns-password"
+                    type={showPassword ? "text" : "password"}
+                    autoComplete="new-password"
+                    minLength={PASSWORD_MIN_LENGTH}
+                    maxLength={PASSWORD_MAX_LENGTH}
+                    placeholder={`Mínimo ${PASSWORD_MIN_LENGTH} caracteres`}
+                    value={password}
+                    onChange={(e) => { setPassword(e.target.value); clearError("password"); }}
+                    style={{
+                      ...inputStyle,
+                      paddingRight: 42,
+                      borderColor: borderColor("password"),
+                    }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword((v) => !v)}
+                    aria-label={showPassword ? "Ocultar senha" : "Mostrar senha"}
+                    style={{
+                      position: "absolute",
+                      right: 10,
+                      top: "50%",
+                      transform: "translateY(-50%)",
+                      background: "none",
+                      border: "none",
+                      cursor: "pointer",
+                      color: "#9A9A9A",
+                      padding: 4,
+                      display: "flex",
+                    }}
+                  >
+                    {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                  </button>
+                </div>
+                <div
+                  style={{
+                    fontSize: 11,
+                    color: errors.password ? "#A32D2D" : "#9A9A9A",
+                    marginTop: 3,
+                  }}
+                >
+                  {errors.password ?? `${password.length}/${PASSWORD_MAX_LENGTH} — o aluno usará esta senha junto com o e-mail acima para entrar.`}
+                </div>
               </div>
 
               {/* Endereço */}

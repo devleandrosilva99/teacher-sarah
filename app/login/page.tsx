@@ -1,9 +1,61 @@
 "use client";
 
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import { Eye, EyeOff } from "lucide-react";
+import {
+  authenticate,
+  setSession,
+  getSession,
+  EMAIL_MAX_LENGTH,
+  PASSWORD_MAX_LENGTH,
+  PASSWORD_MIN_LENGTH,
+} from "@/lib/auth";
+
+function isValidEmail(email: string): boolean {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
+}
 
 export default function LoginPage() {
   const router = useRouter();
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [error, setError] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    const s = getSession();
+    if (s) router.replace(s.role === "professora" ? "/professora" : "/aluno");
+  }, [router]);
+
+  function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setError("");
+
+    if (!email.trim() || !password) {
+      setError("Informe e-mail e senha.");
+      return;
+    }
+    if (!isValidEmail(email)) {
+      setError("E-mail inválido.");
+      return;
+    }
+    if (password.length < PASSWORD_MIN_LENGTH) {
+      setError(`A senha precisa ter ao menos ${PASSWORD_MIN_LENGTH} caracteres.`);
+      return;
+    }
+
+    setSubmitting(true);
+    const session = authenticate(email, password);
+    if (!session) {
+      setError("E-mail ou senha incorretos.");
+      setSubmitting(false);
+      return;
+    }
+    setSession(session);
+    router.replace(session.role === "professora" ? "/professora" : "/aluno");
+  }
 
   return (
     <div
@@ -17,8 +69,8 @@ export default function LoginPage() {
         padding: "1.5rem",
       }}
     >
-      <div style={{ maxWidth: 360, width: "100%" }}>
-        <div style={{ textAlign: "center", marginBottom: "2.5rem" }}>
+      <div style={{ maxWidth: 380, width: "100%" }}>
+        <div style={{ textAlign: "center", marginBottom: "2rem" }}>
           <div
             style={{
               width: 48,
@@ -44,120 +96,188 @@ export default function LoginPage() {
           >
             Teacher Sarah
           </h1>
-          <p
-            style={{
-              fontSize: 14,
-              color: "#6B6B6B",
-              marginTop: 4,
-              marginBottom: 0,
-            }}
-          >
-            Selecione como deseja entrar
+          <p style={{ fontSize: 14, color: "#6B6B6B", marginTop: 4, marginBottom: 0 }}>
+            Entre com seu e-mail e senha
           </p>
         </div>
 
-        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-          <button
-            onClick={() => router.push("/aluno")}
-            style={{
-              width: "100%",
-              padding: "14px 20px",
-              backgroundColor: "#FFFFFF",
-              border: "0.5px solid rgba(0,0,0,0.08)",
-              borderRadius: 12,
-              cursor: "pointer",
-              textAlign: "left",
-              display: "flex",
-              alignItems: "center",
-              gap: 14,
-              transition: "border-color 0.15s, box-shadow 0.15s",
-            }}
-            onMouseEnter={(e) => {
-              (e.currentTarget as HTMLButtonElement).style.borderColor =
-                "#378ADD";
-            }}
-            onMouseLeave={(e) => {
-              (e.currentTarget as HTMLButtonElement).style.borderColor =
-                "rgba(0,0,0,0.08)";
-            }}
-          >
-            <div
+        <form
+          onSubmit={handleSubmit}
+          style={{ display: "flex", flexDirection: "column", gap: 14 }}
+        >
+          <div>
+            <label
+              htmlFor="login-email"
               style={{
-                width: 40,
-                height: 40,
-                backgroundColor: "#E6F1FB",
-                borderRadius: "50%",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                fontSize: 14,
+                fontSize: 11,
                 fontWeight: 500,
-                color: "#0C447C",
-                flexShrink: 0,
+                color: "#9A9A9A",
+                textTransform: "uppercase",
+                letterSpacing: "0.06em",
+                marginBottom: 4,
+                display: "block",
               }}
             >
-              LM
+              E-mail
+            </label>
+            <input
+              id="login-email"
+              type="email"
+              autoComplete="email"
+              required
+              maxLength={EMAIL_MAX_LENGTH}
+              value={email}
+              onChange={(e) => { setEmail(e.target.value); setError(""); }}
+              placeholder="seu@email.com"
+              style={{
+                width: "100%",
+                fontSize: 14,
+                color: "#1A1A1A",
+                backgroundColor: "#FFFFFF",
+                border: "0.5px solid rgba(0,0,0,0.12)",
+                borderRadius: 10,
+                padding: "11px 13px",
+                outline: "none",
+                fontFamily: "inherit",
+              }}
+            />
+            <div style={{ fontSize: 11, color: "#9A9A9A", marginTop: 3 }}>
+              {email.length}/{EMAIL_MAX_LENGTH}
             </div>
-            <div>
-              <div style={{ fontSize: 14, fontWeight: 500, color: "#1A1A1A" }}>
-                Entrar como aluno
-              </div>
-              <div style={{ fontSize: 12, color: "#6B6B6B", marginTop: 1 }}>
-                Lucas Mendes · Nível A2
-              </div>
+          </div>
+
+          <div>
+            <label
+              htmlFor="login-password"
+              style={{
+                fontSize: 11,
+                fontWeight: 500,
+                color: "#9A9A9A",
+                textTransform: "uppercase",
+                letterSpacing: "0.06em",
+                marginBottom: 4,
+                display: "block",
+              }}
+            >
+              Senha
+            </label>
+            <div style={{ position: "relative" }}>
+              <input
+                id="login-password"
+                type={showPassword ? "text" : "password"}
+                autoComplete="current-password"
+                required
+                minLength={PASSWORD_MIN_LENGTH}
+                maxLength={PASSWORD_MAX_LENGTH}
+                value={password}
+                onChange={(e) => { setPassword(e.target.value); setError(""); }}
+                placeholder={`Mínimo ${PASSWORD_MIN_LENGTH} caracteres`}
+                style={{
+                  width: "100%",
+                  fontSize: 14,
+                  color: "#1A1A1A",
+                  backgroundColor: "#FFFFFF",
+                  border: "0.5px solid rgba(0,0,0,0.12)",
+                  borderRadius: 10,
+                  padding: "11px 42px 11px 13px",
+                  outline: "none",
+                  fontFamily: "inherit",
+                }}
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword((v) => !v)}
+                aria-label={showPassword ? "Ocultar senha" : "Mostrar senha"}
+                style={{
+                  position: "absolute",
+                  right: 10,
+                  top: "50%",
+                  transform: "translateY(-50%)",
+                  background: "none",
+                  border: "none",
+                  cursor: "pointer",
+                  color: "#9A9A9A",
+                  padding: 4,
+                  display: "flex",
+                }}
+              >
+                {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+              </button>
             </div>
-          </button>
+            <div style={{ fontSize: 11, color: "#9A9A9A", marginTop: 3 }}>
+              {password.length}/{PASSWORD_MAX_LENGTH}
+            </div>
+          </div>
+
+          {error && (
+            <div
+              style={{
+                fontSize: 13,
+                color: "#A32D2D",
+                backgroundColor: "#FCEBEB",
+                border: "0.5px solid #A32D2D",
+                borderRadius: 8,
+                padding: "9px 12px",
+              }}
+              role="alert"
+            >
+              {error}
+            </div>
+          )}
 
           <button
-            onClick={() => router.push("/professora")}
+            type="submit"
+            disabled={submitting}
             style={{
               width: "100%",
-              padding: "14px 20px",
-              backgroundColor: "#FFFFFF",
-              border: "0.5px solid rgba(0,0,0,0.08)",
-              borderRadius: 12,
-              cursor: "pointer",
-              textAlign: "left",
-              display: "flex",
-              alignItems: "center",
-              gap: 14,
-              transition: "border-color 0.15s",
-            }}
-            onMouseEnter={(e) => {
-              (e.currentTarget as HTMLButtonElement).style.borderColor =
-                "#1D9E75";
-            }}
-            onMouseLeave={(e) => {
-              (e.currentTarget as HTMLButtonElement).style.borderColor =
-                "rgba(0,0,0,0.08)";
+              padding: "12px 0",
+              borderRadius: 10,
+              border: "none",
+              backgroundColor: "#1A1A1A",
+              color: "#FFFFFF",
+              fontSize: 14,
+              fontWeight: 500,
+              cursor: submitting ? "default" : "pointer",
+              opacity: submitting ? 0.6 : 1,
+              marginTop: 4,
             }}
           >
-            <div
-              style={{
-                width: 40,
-                height: 40,
-                backgroundColor: "#E1F5EE",
-                borderRadius: "50%",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                fontSize: 14,
-                fontWeight: 500,
-                color: "#0F6E56",
-                flexShrink: 0,
-              }}
-            >
-              SA
-            </div>
-            <div>
-              <div style={{ fontSize: 14, fontWeight: 500, color: "#1A1A1A" }}>
-                Entrar como professora
-              </div>
-              <div style={{ fontSize: 12, color: "#6B6B6B", marginTop: 1 }}>
-                Sarah Ramos · Teacher
-              </div>
-            </div>
+            {submitting ? "Entrando…" : "Entrar"}
           </button>
+        </form>
+
+        <div
+          style={{
+            marginTop: "1.75rem",
+            padding: "0.875rem 1rem",
+            backgroundColor: "#FFFFFF",
+            border: "0.5px solid rgba(0,0,0,0.08)",
+            borderRadius: 10,
+            fontSize: 12,
+            color: "#6B6B6B",
+            lineHeight: 1.6,
+          }}
+        >
+          <div
+            style={{
+              fontSize: 11,
+              fontWeight: 500,
+              color: "#9A9A9A",
+              textTransform: "uppercase",
+              letterSpacing: "0.06em",
+              marginBottom: 6,
+            }}
+          >
+            Contas de demonstração
+          </div>
+          <div>
+            <strong style={{ color: "#1A1A1A", fontWeight: 500 }}>Professora:</strong>{" "}
+            sarah@teachersarah.com / sarah123
+          </div>
+          <div>
+            <strong style={{ color: "#1A1A1A", fontWeight: 500 }}>Aluno:</strong>{" "}
+            lucas.mendes@email.com / demo123
+          </div>
         </div>
       </div>
     </div>
