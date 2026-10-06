@@ -1,36 +1,69 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Teacher Sarah: plataforma para professores de inglês
 
-## Getting Started
+Cada professor tem seu próprio espaço, com alunos, turmas, banco de questões, atividades, correção, agenda e relatórios. O aluno entra pela página do professor e vê só o que foi passado para ele.
 
-First, run the development server:
+Next.js 16 (App Router, Server Actions) + TypeScript + Tailwind 4. A estrutura completa do sistema está no documento de arquitetura do projeto.
+
+## Rodar localmente
 
 ```bash
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Abra http://localhost:3000. Na primeira vez, o sistema cria dados de demonstração em `.data/db.json` (ignorado pelo git). Para recomeçar do zero, apague a pasta `.data`.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+As contas de demonstração estão listadas no topo de [server/db/seed.ts](server/db/seed.ts): dois professores (para ver o isolamento entre eles), seis alunos e, só em ambiente local, um administrador.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```bash
+npm test
+```
 
-## Learn More
+O comando acima roda os testes dos corretores automáticos (`tests/`).
 
-To learn more about Next.js, take a look at the following resources:
+## Onde ficam os dados
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+O código acessa os dados só por [server/db/repo.ts](server/db/repo.ts). O armazenamento é escolhido sozinho:
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+| Situação | Armazenamento | Persistente? |
+| --- | --- | --- |
+| `KV_REST_API_URL` e `KV_REST_API_TOKEN` definidos | Redis (Upstash / Vercel KV) | Sim |
+| Rodando local, sem Redis | Arquivo `.data/db.json` | Sim, na sua máquina |
+| Na Vercel, sem Redis | Memória | **Não**: some quando a função reinicia |
 
-## Deploy on Vercel
+Sem Redis na Vercel, o app mostra uma faixa amarela de "modo demonstração".
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## Publicar na Vercel com Redis
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+1. No projeto da Vercel: **Storage → Create Database → Upstash for Redis** (o plano gratuito basta para o protótipo) e conecte ao projeto. Isso cria `KV_REST_API_URL` e `KV_REST_API_TOKEN`.
+2. Em **Settings → Environment Variables**, defina:
+   - `ADMIN_EMAIL` e `ADMIN_PASSWORD`: conta de administrador criada no primeiro acesso.
+   - `SEED_DEMO=false` se não quiser as contas de demonstração (recomendado quando professores reais forem usar, porque as senhas de demonstração estão públicas no repositório).
+   - `SESSION_SECRET` (opcional): se vazio, um segredo aleatório é gerado e guardado no Redis.
+3. Faça o deploy. Os dados iniciais são criados no primeiro acesso.
+
+Veja [.env.example](.env.example).
+
+## Organização
+
+```text
+app/(publico)/     página inicial, entrar, cadastro, convite, página do professor (/p/[slug]), termos
+app/professor/     área do professor
+app/aluno/         área do aluno
+app/admin/         administração da plataforma
+components/        UI; questions/ tem o editor e o "player" de cada tipo de questão
+lib/question-types.ts   os 8 tipos de questão: formato, construção, correção
+server/auth/       senha (scrypt), sessão em cookie assinado, guardas de acesso
+server/actions/    Server Actions (toda ação confere o usuário e o dono do dado)
+server/db/         armazenamento (driver), repositório e dados de demonstração
+server/services/   atribuição, correção, progresso, exportação, notificações
+proxy.ts           redireciona para o login quem não tem sessão
+```
+
+## Segurança
+
+- Dados de um professor ficam em chaves `t:<id do professor>:...`, e as funções de acesso exigem o id do professor logado. Um professor não alcança dados de outro.
+- O gabarito nunca vai para o navegador do aluno antes da correção; a correção roda no servidor.
+- Tempo limite e prazo são conferidos no servidor.
+- Senhas com scrypt + sal; sessão em cookie `httpOnly` assinado com HMAC; limite de 5 tentativas de login a cada 15 minutos.
+- O aluno exporta os próprios dados e pede exclusão (LGPD); o professor exporta e exclui os dados do aluno.

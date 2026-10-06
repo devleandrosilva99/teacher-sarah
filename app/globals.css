@@ -6,6 +6,7 @@
   --color-page: #f5f4ef;
   --color-surface: #ffffff;
   --color-surface-raised: #efede5;
+  --color-line: rgba(0, 0, 0, 0.09);
 
   --color-ink: #1a1a1a;
   --color-ink-2: #6b6b6b;
@@ -38,13 +39,36 @@
   --color-rose-fg: #72243e;
 }
 
+/* Cor da marca do professor, definida no layout de cada área. */
+@theme inline {
+  --color-brand: var(--brand);
+  --color-brand-soft: color-mix(in srgb, var(--brand) 12%, white);
+  --color-brand-ink: color-mix(in srgb, var(--brand) 70%, black);
+}
+
+:root {
+  --brand: #378add;
+}
+
 * {
   box-sizing: border-box;
 }
 
 body {
-  background-color: #f5f4ef;
-  color: #1a1a1a;
+  background-color: var(--color-page);
+  color: var(--color-ink);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+input,
+select,
+textarea,
+button {
+  font: inherit;
+}
+
+:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
 }
