@@ -1,6 +1,8 @@
-# Diagrama do sistema: telas e funções
+# Diagrama do sistema Docentia: telas e funções
 
-Estado em 26/10/2026 (branch `fase1-postgres`: PostgreSQL e disciplinas). Os diagramas usam Mermaid e aparecem desenhados no GitHub e em editores com suporte a Mermaid.
+O projeto começou como o protótipo "Teacher Sarah"; a plataforma agora se chama Docentia.
+
+Estado em 26/10/2026 (em produção, com a Fase 1: PostgreSQL e disciplinas). Os diagramas usam Mermaid e aparecem desenhados no GitHub e em editores com suporte a Mermaid.
 
 ## 1. Visão geral: áreas e acesso
 

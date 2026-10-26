@@ -27,7 +27,7 @@ export default function AuthShell({
             href="/"
             className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-brand-soft text-base font-semibold text-brand-ink"
           >
-            {brand ? initials(brand.name) : "TS"}
+            {initials(brand ? brand.name : APP_NAME)}
           </Link>
           <h1 className="text-xl font-medium">{title}</h1>
           {subtitle && <p className="mt-1 text-sm text-ink-2">{subtitle}</p>}
