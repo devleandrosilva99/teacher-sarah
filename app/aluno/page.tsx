@@ -1,134 +1,57 @@
-"use client";
+import Link from "next/link";
+import { Video } from "lucide-react";
+import { requireStudent } from "@/server/auth/session";
+import { lessons } from "@/server/db/repo";
+import { studentRows, summarize } from "@/server/services/assignments";
+import AssignmentCard from "@/components/student/AssignmentCard";
+import { ButtonLink, Card, EmptyState, Stat } from "@/components/ui";
+import { formatWeekdayTime } from "@/lib/format";
 
-import { useEffect, useState } from "react";
-import Card from "@/components/Card";
-import LessonCard from "@/components/LessonCard";
-import ProgressBar from "@/components/ProgressBar";
-import {
-  Lesson,
-  Student,
-  StudentProgress,
-  getStudentLessons,
-  getStudentProgress,
-  loadAddedStudents,
-  students,
-} from "@/lib/mock-data";
-import { getSession } from "@/lib/auth";
+export const metadata = { title: "Início" };
 
-export default function AlunoDashboard() {
-  const [student, setStudent] = useState<Student | null>(null);
-  const [lessons, setLessons] = useState<Lesson[]>([]);
-  const [progress, setProgress] = useState<StudentProgress | null>(null);
-  const [loaded, setLoaded] = useState(false);
-
-  useEffect(() => {
-    const s = getSession();
-    if (!s) {
-      setLoaded(true);
-      return;
-    }
-    const all = [...students, ...loadAddedStudents()];
-    const found = all.find((x) => x.id === s.userId) ?? null;
-    setStudent(found);
-    if (found) {
-      setLessons(getStudentLessons(found.id));
-      setProgress(getStudentProgress(found.id, found));
-    }
-    setLoaded(true);
-  }, []);
-
-  if (!loaded || !student || !progress) {
-    return (
-      <div style={{ paddingTop: "2rem", textAlign: "center", color: "#9A9A9A", fontSize: 14 }}>
-        Carregando…
-      </div>
-    );
-  }
-
-  const { progressPercent, lessonsCompleted, lessonsTotal, exercisesTotal, streakDays } = progress;
+export default async function AlunoHome() {
+  const { student, scope } = await requireStudent();
+  // No escopo do aluno, a RLS só devolve as aulas dele e das turmas dele.
+  const [rows, ls] = await Promise.all([studentRows(scope, student.id), lessons.all(scope)]);
+  const sum = summarize(rows);
+  const todo = rows.filter((r) => r.status === "not_started" || r.status === "in_progress" || (r.status === "overdue" && r.attemptsLeft > 0));
+  const next = ls
+    .filter((l) => l.status === "scheduled")
+    .filter((l) => new Date(l.startsAt).getTime() + l.durationMin * 60_000 > Date.now())
+    .sort((a, b) => a.startsAt.localeCompare(b.startsAt))[0];
 
   return (
-    <div style={{ paddingTop: "1rem", display: "flex", flexDirection: "column", gap: 10 }}>
-      <Card>
-        <div
-          style={{
-            display: "flex",
-            alignItems: "flex-start",
-            justifyContent: "space-between",
-            marginBottom: 12,
-          }}
-        >
-          <div>
-            <div style={{ fontSize: 13, color: "#6B6B6B", marginBottom: 2 }}>
-              Progresso no nível {student.level}
-            </div>
-          </div>
-          <span style={{ fontSize: 18, fontWeight: 500, color: "#1A1A1A" }}>
-            {progressPercent}%
-          </span>
-        </div>
+    <div className="flex flex-col gap-5">
+      {next && (
+        <Card className="border-brand/40 bg-brand-soft">
+          <div className="text-xs font-medium text-brand-ink">Próxima aula</div>
+          <div className="mt-1 font-medium">{next.topic || "Aula"}</div>
+          <div className="text-sm text-ink-2">{formatWeekdayTime(next.startsAt)} · {next.durationMin} min</div>
+          {next.meetingUrl && (
+            <ButtonLink href={next.meetingUrl} target="_blank" className="mt-3"><Video size={16} /> Entrar na aula</ButtonLink>
+          )}
+        </Card>
+      )}
 
-        <ProgressBar percent={progressPercent} color="#1D9E75" height={8} />
-
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "1fr 1fr 1fr",
-            gap: 8,
-            marginTop: 14,
-          }}
-        >
-          {[
-            { label: "Aulas", value: `${lessonsCompleted} / ${lessonsTotal}` },
-            { label: "Exercícios", value: String(exercisesTotal) },
-            { label: "Sequência", value: `${streakDays} dias` },
-          ].map(({ label, value }) => (
-            <div key={label} style={{ textAlign: "center" }}>
-              <div style={{ fontSize: 13, fontWeight: 500, color: "#1A1A1A" }}>{value}</div>
-              <div style={{ fontSize: 11, color: "#9A9A9A", marginTop: 2 }}>{label}</div>
-            </div>
-          ))}
-        </div>
-      </Card>
-
-      <div
-        style={{
-          fontSize: 11,
-          fontWeight: 500,
-          color: "#9A9A9A",
-          letterSpacing: "0.06em",
-          textTransform: "uppercase",
-          marginTop: 8,
-          marginBottom: 2,
-        }}
-      >
-        Suas aulas
+      <div className="grid grid-cols-3 gap-3">
+        <Stat label="Média" value={sum.average !== null ? `${sum.average}%` : "—"} />
+        <Stat label="Feitas" value={sum.completed} />
+        <Stat label="Pendentes" value={todo.length} />
       </div>
 
-      {lessons.length === 0 ? (
-        <Card>
-          <div style={{ padding: "1rem 0", textAlign: "center" }}>
-            <div style={{ fontSize: 14, fontWeight: 500, color: "#1A1A1A", marginBottom: 4 }}>
-              Você ainda não tem aulas registradas
-            </div>
-            <div style={{ fontSize: 13, color: "#6B6B6B" }}>
-              Assim que a professora agendar sua primeira aula, ela aparece aqui.
-            </div>
+      <section>
+        <div className="mb-2 flex items-center justify-between">
+          <h2 className="text-sm font-semibold">Para fazer</h2>
+          <Link href="/aluno/atividades" className="text-xs text-brand">Ver todas</Link>
+        </div>
+        {todo.length === 0 ? (
+          <EmptyState title="Nenhuma atividade pendente">Bom trabalho!</EmptyState>
+        ) : (
+          <div className="flex flex-col gap-2">
+            {todo.slice(0, 5).map((r) => <AssignmentCard key={r.assignment.id} row={r} />)}
           </div>
-        </Card>
-      ) : (
-        lessons.map((lesson) => (
-          <LessonCard
-            key={lesson.id}
-            id={lesson.id}
-            date={lesson.date}
-            title={lesson.title}
-            status={lesson.status}
-            exercisesDone={lesson.exercisesDone}
-            exercisesTotal={lesson.exercisesTotal}
-          />
-        ))
-      )}
+        )}
+      </section>
     </div>
   );
 }

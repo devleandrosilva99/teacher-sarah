@@ -39,3 +39,7 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# dados locais do protótipo (driver de arquivo)
+/.data/
+!.env.example

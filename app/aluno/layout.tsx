@@ -1,108 +1,38 @@
-"use client";
-
-import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { Bell, LogOut } from "lucide-react";
-import BottomNav from "@/components/BottomNav";
-import Avatar from "@/components/Avatar";
-import { getSession, clearSession } from "@/lib/auth";
-import { students, loadAddedStudents, Student } from "@/lib/mock-data";
+import BottomNav from "@/components/nav/BottomNav";
+import { Avatar } from "@/components/ui";
+import { requireStudent } from "@/server/auth/session";
+import { logout } from "@/server/actions/auth";
+import { unreadCount } from "@/server/services/notify";
+import { subjects } from "@/server/db/repo";
+import { mainLevel } from "@/lib/subjects";
 
-export default function AlunoLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
-  const router = useRouter();
-  const [student, setStudent] = useState<Student | null>(null);
-  const [checked, setChecked] = useState(false);
-
-  useEffect(() => {
-    const s = getSession();
-    if (!s || s.role !== "aluno") {
-      router.replace("/login");
-      return;
-    }
-    const all = [...students, ...loadAddedStudents()];
-    const found = all.find((x) => x.id === s.userId) ?? null;
-    setStudent(found);
-    setChecked(true);
-  }, [router]);
-
-  function handleLogout() {
-    clearSession();
-    router.replace("/login");
-  }
-
-  if (!checked) return null;
-
-  const firstName = student?.name.split(" ")[0] ?? "aluno";
-  const levelText = student
-    ? `Nível atual: ${student.level} — ${student.levelLabel}`
-    : "";
-  const initials = student?.initials ?? "??";
-  const avatarBg = student?.avatarColor ?? "#E6F1FB";
-  const avatarFg = student?.avatarTextColor ?? "#0C447C";
-
+export default async function AlunoLayout({ children }: { children: React.ReactNode }) {
+  const { user, student, teacher, scope } = await requireStudent();
+  const [unread, subjectList] = await Promise.all([unreadCount(user.id), subjects.all(scope)]);
+  const level = mainLevel(student, subjectList);
   return (
-    <div style={{ minHeight: "100vh", backgroundColor: "#F5F4EF" }}>
-      <header
-        style={{
-          backgroundColor: "#F5F4EF",
-          padding: "1rem 1.25rem 0.75rem",
-          display: "flex",
-          alignItems: "center",
-          gap: 12,
-          position: "sticky",
-          top: 0,
-          zIndex: 40,
-        }}
-      >
-        <Avatar
-          initials={initials}
-          bgColor={avatarBg}
-          textColor={avatarFg}
-          size={40}
-        />
-        <div style={{ flex: 1 }}>
-          <div style={{ fontSize: 16, fontWeight: 500, color: "#1A1A1A" }}>
-            Olá, {firstName}!
+    <div style={{ ["--brand" as string]: teacher.color } as React.CSSProperties} className="min-h-screen">
+      <header className="mx-auto flex max-w-5xl items-center gap-3 px-4 pb-2 pt-4">
+        <Avatar name={student.name} color={student.avatarColor} size={40} />
+        <div className="min-w-0 flex-1">
+          <div className="truncate font-medium">Olá, {student.name.split(" ")[0]}!</div>
+          <div className="truncate text-xs text-ink-2">
+            {level ? `${level.code} · ${level.label} · ` : ""}com {teacher.name}
           </div>
-          <div style={{ fontSize: 12, color: "#6B6B6B" }}>{levelText}</div>
         </div>
-        <div style={{ display: "flex", gap: 8 }}>
-          <button
-            aria-label="Notificações"
-            style={{
-              background: "none",
-              border: "none",
-              cursor: "pointer",
-              padding: 6,
-              borderRadius: 8,
-              color: "#6B6B6B",
-            }}
-          >
-            <Bell size={20} />
-          </button>
-          <button
-            onClick={handleLogout}
-            aria-label="Sair"
-            style={{
-              background: "none",
-              border: "none",
-              cursor: "pointer",
-              padding: 6,
-              borderRadius: 8,
-              color: "#6B6B6B",
-            }}
-          >
+        <Link href="/aluno/notificacoes" className="relative rounded-lg p-2 text-ink-2 hover:bg-surface-raised" aria-label="Notificações">
+          <Bell size={20} />
+          {unread > 0 && <span className="absolute right-1 top-1 h-2 w-2 rounded-full bg-brand" />}
+        </Link>
+        <form action={logout}>
+          <button className="rounded-lg p-2 text-ink-2 hover:bg-surface-raised" aria-label="Sair" title="Sair">
             <LogOut size={20} />
           </button>
-        </div>
+        </form>
       </header>
-
-      <main style={{ padding: "0 1.25rem 6rem" }}>{children}</main>
-
+      <main className="mx-auto max-w-5xl px-4 pb-24 pt-2">{children}</main>
       <BottomNav />
     </div>
   );
