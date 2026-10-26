@@ -11,9 +11,7 @@ import VerifyEmailBanner from "@/components/teacher/VerifyEmailBanner";
 
 export default async function ProfessorLayout({ children }: { children: React.ReactNode }) {
   const { user, teacher } = await requireTeacher();
-  const [toGrade, unread] = await withScope(teacher.id, (r) =>
-    Promise.all([r.submissions.countByStatus("submitted"), r.notifications.unreadCount(user.id)])
-  );
+  const [toGrade, unread] = await withScope(teacher.id, async (r) => [await r.submissions.countByStatus("submitted"), await r.notifications.unreadCount(user.id)] as const);
 
   const items: NavItem[] = [
     { href: "/professor", label: "Início", icon: "home", exact: true },

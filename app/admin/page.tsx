@@ -23,7 +23,7 @@ export default async function AdminPage({ searchParams }: { searchParams: Promis
   const { reset } = await searchParams;
   const resetMsg = reset ? RESET_MESSAGES[reset] : undefined;
   const canMail = mailAvailable();
-  const [list, accounts] = await withScope(null, (r) => Promise.all([r.teachers.all(), r.users.all()]));
+  const [list, accounts] = await withScope(null, async (r) => [await r.teachers.all(), await r.users.all()] as const);
   const userById = new Map(accounts.map((u) => [u.id, u]));
   // O administrador vê só contagens, não os dados pessoais dos alunos
   // (consulta agregada em escopo system).

@@ -3,6 +3,7 @@ import { activities, type Repo } from "@/server/db/repo";
 import { grade, seededShuffle, shuffleContent } from "@/lib/question-types";
 import { newId, nowIso, percent } from "@/lib/format";
 import { notify } from "./notify";
+import { fileIdFromUrl } from "@/lib/files";
 import type {
   Activity,
   AnswerRecord,
@@ -25,12 +26,11 @@ export async function createAssignment(
   activity: Activity,
   target: { studentIds: string[]; classId: string; releaseAt: string; dueAt: string }
 ): Promise<Assignment> {
-  const [all, subject, passageList, studentList] = await Promise.all([
-    r.questions.all(),
-    r.subjects.get(activity.subjectId),
-    r.passages.all(),
-    r.students.all(),
-  ]);
+  // Em sequência: as consultas usam a mesma conexão da transação.
+  const all = await r.questions.all();
+  const subject = await r.subjects.get(activity.subjectId);
+  const passageList = await r.passages.all();
+  const studentList = await r.students.all();
   const byId = new Map(all.map((q) => [q.id, q]));
   const skillLabel = new Map((subject?.skills ?? []).map((k) => [k.key, k.label]));
   const snap: SnapshotQuestion[] = [];
@@ -61,6 +61,7 @@ export async function createAssignment(
     createdAt: nowIso(),
   };
   await r.assignments.create(assignment);
+  await linkAssignmentMedia(r, assignment);
 
   for (const st of studentList) {
     if (assignment.studentIds.includes(st.id)) {
@@ -68,6 +69,18 @@ export async function createAssignment(
     }
   }
   return assignment;
+}
+
+/**
+ * Liga ao envio as mídias do professor usadas na cópia congelada (questões e
+ * textos): é o que libera cada mídia para os alunos do envio (ver 0004).
+ */
+export async function linkAssignmentMedia(r: Repo, assignment: Assignment): Promise<number> {
+  const ids = [
+    ...assignment.questions.map((q) => fileIdFromUrl(q.mediaUrl)),
+    ...assignment.passages.map((p) => fileIdFromUrl(p.audioUrl)),
+  ].filter((x): x is string => !!x);
+  return r.files.linkToAssignment(assignment.teacherId, assignment.id, ids);
 }
 
 /**

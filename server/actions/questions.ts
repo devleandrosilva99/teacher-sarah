@@ -8,13 +8,14 @@ import { isUuid, withScope } from "@/server/db/repo";
 import { buildQuestion, typeAllowed } from "@/lib/question-types";
 import { QUESTION_TYPES, type Passage, type Question } from "@/lib/types";
 import { newId, nowIso } from "@/lib/format";
+import { fileIdFromUrl } from "@/lib/files";
 import type { FormState } from "./state";
 
 const url = z
   .string()
   .trim()
   .max(500)
-  .refine((v) => v === "" || /^https?:\/\//i.test(v), "O link da mídia precisa começar com http:// ou https://.");
+  .refine((v) => v === "" || /^https?:\/\//i.test(v) || fileIdFromUrl(v) !== null, "O link da mídia precisa começar com http:// ou https://.");
 
 const QuestionSchema = z.object({
   id: z.string().default(""),

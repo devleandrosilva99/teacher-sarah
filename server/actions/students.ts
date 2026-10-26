@@ -10,6 +10,7 @@ import type { Student } from "@/lib/types";
 import { newId, nowIso } from "@/lib/format";
 import { deleteClassTx, deleteStudentTx } from "@/server/services/flows";
 import { mailAvailable, sendMail } from "@/server/mail";
+import { deleteObjectsAfterCommit } from "@/server/storage";
 import { inviteEmail } from "@/server/mail/templates";
 import { baseUrl } from "@/server/url";
 import type { FormState } from "./state";
@@ -151,7 +152,9 @@ export async function setStudentStatus(studentId: string, status: "active" | "ar
  */
 export async function deleteStudent(studentId: string): Promise<void> {
   const { teacher } = await requireTeacher();
-  await withScope(teacher.id, (r) => deleteStudentTx(r, studentId));
+  const deleted = await withScope(teacher.id, (r) => deleteStudentTx(r, studentId));
+  // Depois da transação: se o armazenamento falhar, as chaves vão para o log e o aluno continua excluído.
+  if (deleted) await deleteObjectsAfterCommit(deleted.storageKeys, `exclusão do aluno ${studentId}`);
   revalidatePath("/professor", "layout");
   redirect("/professor/alunos?excluido=1");
 }

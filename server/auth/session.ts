@@ -147,3 +147,23 @@ export const requireAdmin = cache(async (): Promise<User> => {
   if (user.role !== "admin") redirect(homeFor(user.role));
   return user;
 });
+
+/**
+ * Quem está pedindo um arquivo (rota /arquivos/[id]): professor ou aluno
+ * ativo, ou null. Não redireciona: a rota responde 404 em qualquer recusa.
+ */
+export const currentFileViewer = cache(async (): Promise<
+  { role: "teacher"; teacherId: string } | { role: "student"; teacherId: string; studentId: string } | null
+> => {
+  const user = await getCurrentUser();
+  if (!user) return null;
+  if (user.role === "teacher") {
+    const teacher = (await loadSession())?.teacher;
+    return teacher ? { role: "teacher", teacherId: teacher.id } : null;
+  }
+  if (user.role === "student") {
+    const student = await studentForUser(user.id);
+    return student && student.status === "active" ? { role: "student", teacherId: student.teacherId, studentId: student.id } : null;
+  }
+  return null;
+});

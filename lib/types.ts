@@ -20,6 +20,25 @@ export interface User {
 
 export type AuthTokenPurpose = "password_reset" | "email_verify";
 
+export type FilePurpose = "question_media" | "submission";
+
+/** Metadados de um arquivo enviado (o conteúdo fica no armazenamento). */
+export interface StoredFile {
+  id: string;
+  teacherId: string;
+  uploadedBy: "teacher" | "student";
+  purpose: FilePurpose;
+  studentId: string;
+  submissionId: string;
+  questionId: string;
+  storageKey: string;
+  originalName: string;
+  contentType: string;
+  sizeBytes: number;
+  status: "pending" | "ready";
+  createdAt: string;
+}
+
 export interface Teacher {
   id: string;
   userId: string;
@@ -117,6 +136,7 @@ export const QUESTION_TYPES = [
   "matching",
   "ordering",
   "open",
+  "file_upload",
 ] as const;
 export type QuestionType = (typeof QUESTION_TYPES)[number];
 

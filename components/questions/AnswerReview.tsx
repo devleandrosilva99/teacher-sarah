@@ -1,6 +1,7 @@
 import { describeKey, type Keys } from "@/lib/question-types";
 import type { AnswerRecord, Passage, SnapshotQuestion } from "@/lib/types";
 import QuestionPlayer, { Media } from "./QuestionPlayer";
+import type { FileInfo } from "./FileAnswer";
 import { Badge } from "@/components/ui";
 
 /** Uma questão já respondida: resposta do aluno, acertos e (opcionalmente) gabarito. */
@@ -11,6 +12,7 @@ export default function AnswerReview({
   showKey,
   passage,
   children,
+  files,
 }: {
   index: number;
   question: SnapshotQuestion;
@@ -18,6 +20,8 @@ export default function AnswerReview({
   showKey: boolean;
   passage?: Passage;
   children?: React.ReactNode;
+  /** Arquivos da entrega (nome e tamanho), para a lista de downloads. */
+  files?: Record<string, FileInfo>;
 }) {
   const response = (answer?.response ?? {}) as Record<string, unknown>;
   const correctIds =
@@ -49,8 +53,9 @@ export default function AnswerReview({
         readOnly
         detail={showKey ? answer?.detail : undefined}
         correctIds={correctIds}
+        files={files}
       />
-      {showKey && question.type !== "single_choice" && question.type !== "multiple_choice" && (
+      {showKey && question.type !== "single_choice" && question.type !== "multiple_choice" && question.type !== "file_upload" && (
         <p className="mt-3 rounded-lg bg-success-bg px-3 py-2 text-xs text-success-fg">
           <span className="font-medium">{question.type === "open" ? "Resposta-modelo: " : "Resposta esperada: "}</span>
           {describeKey(question.type, question.content, question.answerKey)}

@@ -9,7 +9,7 @@ import { mainLevel } from "@/lib/subjects";
 
 export default async function AlunoLayout({ children }: { children: React.ReactNode }) {
   const { user, student, teacher, scope } = await requireStudent();
-  const [unread, subjectList] = await withScope(scope, (r) => Promise.all([r.notifications.unreadCount(user.id), r.subjects.all()]));
+  const [unread, subjectList] = await withScope(scope, async (r) => [await r.notifications.unreadCount(user.id), await r.subjects.all()] as const);
   const level = mainLevel(student, subjectList);
   return (
     <div style={{ ["--brand" as string]: teacher.color } as React.CSSProperties} className="min-h-screen">

@@ -9,6 +9,7 @@ import type { Level, Question, QuestionType, Skill, Subject } from "@/lib/types"
 import SubjectPicker from "@/components/teacher/SubjectPicker";
 import { Button, Card, Field, Input, Notice, Select, Textarea, cx } from "@/components/ui";
 import SourceEditor from "./SourceEditors";
+import MediaUploadButton from "@/components/MediaUploadButton";
 import QuestionPlayer, { Media } from "./QuestionPlayer";
 
 interface PassageOption {
@@ -30,6 +31,7 @@ export default function QuestionEditor({
   defaultPassageId = "",
   defaultSubjectId = "",
   next = "",
+  canUpload = false,
 }: {
   question?: Question;
   subjects: Subject[];
@@ -37,6 +39,8 @@ export default function QuestionEditor({
   defaultPassageId?: string;
   defaultSubjectId?: string;
   next?: string;
+  /** Armazenamento configurado: mostra "Enviar arquivo" ao lado do link. */
+  canUpload?: boolean;
 }) {
   const [state, action, pending] = useActionState(saveQuestion, initialState);
   const [subjectId, setSubjectId] = useState(question?.subjectId ?? (defaultSubjectId || subjects[0]?.id || ""));
@@ -162,8 +166,14 @@ export default function QuestionEditor({
               <Field label="Instrução extra (opcional)">
                 <Input value={instructions} onChange={(e) => setInstructions(e.target.value)} maxLength={1000} />
               </Field>
-              <Field label="Imagem ou áudio (link, opcional)" hint="Cole um link https de imagem (.jpg, .png) ou áudio (.mp3).">
-                <Input value={mediaUrl} onChange={(e) => setMediaUrl(e.target.value)} maxLength={500} placeholder="https://..." />
+              <Field
+                label="Imagem ou áudio (opcional)"
+                hint={canUpload ? "Envie um arquivo (imagem até 5 MB, áudio até 20 MB) ou cole um link https." : "Cole um link https de imagem (.jpg, .png) ou áudio (.mp3)."}
+              >
+                <div className="flex gap-2">
+                  <Input value={mediaUrl} onChange={(e) => setMediaUrl(e.target.value)} maxLength={500} placeholder="https://..." />
+                  {canUpload && <MediaUploadButton accept="image/jpeg,image/png,image/webp,image/gif,audio/*" onUploaded={setMediaUrl} />}
+                </div>
               </Field>
             </div>
           </Card>

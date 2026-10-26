@@ -18,6 +18,7 @@ export async function exportStudentData(scope: Exclude<Scope, null>, teacherId: 
   const ls = await r.lessons.all();
   const cls = await r.classes.all();
   const subjectList = await r.subjects.all();
+  const files = (await r.files.forStudent(studentId)).filter((f) => f.status === "ready");
   // No escopo do aluno a RLS já só devolve as aulas dele (e ele não lê turmas).
   const asStudent = typeof scope === "object" && "studentId" in scope && !!scope.studentId;
   const myClassIds = new Set(cls.filter((c) => c.studentIds.includes(studentId)).map((c) => c.id));
@@ -55,6 +56,15 @@ export async function exportStudentData(scope: Exclude<Scope, null>, teacherId: 
           })),
         };
       }),
+    // Arquivos enviados pelo aluno: metadados e o endereço para baixar (com login).
+    files: files.map((f) => ({
+      name: f.originalName,
+      type: f.contentType,
+      sizeBytes: f.sizeBytes,
+      uploadedAt: f.createdAt,
+      activity: asgs.find((a) => subs.some((s) => s.id === f.submissionId && s.assignmentId === a.id))?.title ?? null,
+      download: `/arquivos/${f.id}`,
+    })),
     lessons: ls
       .filter((l) => asStudent || l.studentId === studentId || myClassIds.has(l.classId))
       .map((l) => ({ startsAt: l.startsAt, topic: l.topic, notes: l.notes, vocabulary: l.vocabulary, attendance: l.attendance[studentId] ?? null })),

@@ -4,6 +4,7 @@ import { deadlineFor, gradeSubmission, withTotals } from "./assignments";
 import { notify } from "./notify";
 import { nowIso } from "@/lib/format";
 import type { Assignment, Submission } from "@/lib/types";
+import type { Contents } from "@/lib/question-types";
 
 // Operações que alteram várias tabelas. Cada função recebe o repositório de
 // uma transação já aberta (withScope): ou tudo é gravado, ou nada.
@@ -31,6 +32,26 @@ export function cleanResponses(assignment: Assignment, raw: unknown): Record<str
   return out;
 }
 
+/**
+ * Nas respostas de entrega de arquivo, mantém só arquivos prontos do próprio
+ * aluno, desta tentativa e desta questão, até o limite da questão.
+ */
+export async function verifiedFileResponses(r: Repo, assignment: Assignment, sub: Submission, responses: Record<string, unknown>) {
+  const questions = assignment.questions.filter((q) => q.type === "file_upload");
+  if (!questions.length) return responses;
+  const mine = await r.files.forSubmission(sub.id);
+  const out = { ...responses };
+  for (const q of questions) {
+    const wanted = (responses[q.id] as { fileIds?: unknown } | undefined)?.fileIds;
+    const allowed = new Set(mine.filter((f) => f.questionId === q.id && f.studentId === sub.studentId).map((f) => f.id));
+    const max = (q.content as Contents["file_upload"]).maxFiles;
+    const ids = Array.isArray(wanted) ? [...new Set(wanted.map(String))].filter((id) => allowed.has(id)).slice(0, max) : [];
+    if (ids.length) out[q.id] = { fileIds: ids };
+    else delete out[q.id];
+  }
+  return out;
+}
+
 /** Entrega: corrige, grava e avisa o professor. */
 export async function submitAttemptTx(
   r: Repo,
@@ -44,7 +65,7 @@ export async function submitAttemptTx(
   const deadline = deadlineFor(assignment, sub);
   const inTime = !deadline || Date.now() <= deadline + GRACE_MS;
   // Depois do tempo limite, vale o último rascunho salvo dentro do prazo.
-  const finalResponses = inTime ? cleanResponses(assignment, p.responses) : sub.responses;
+  const finalResponses = await verifiedFileResponses(r, assignment, sub, inTime ? cleanResponses(assignment, p.responses) : sub.responses);
   const graded = gradeSubmission(assignment, {
     ...sub,
     responses: finalResponses,
@@ -106,19 +127,22 @@ export async function gradeAttemptTx(r: Repo, submissionId: string, input: Grade
 }
 
 /**
- * Exclusão definitiva de um aluno (LGPD). Entregas, aulas individuais,
- * convites, níveis e participação em turmas e envios saem por ON DELETE
- * CASCADE; a conta de login é apagada em seguida.
+ * Exclusão definitiva de um aluno (LGPD). Entregas, arquivos (metadados),
+ * aulas individuais, convites, níveis e participação em turmas e envios saem
+ * por ON DELETE CASCADE; a conta de login é apagada em seguida.
  */
-export async function deleteStudentTx(r: Repo, studentId: string): Promise<boolean> {
+export async function deleteStudentTx(r: Repo, studentId: string): Promise<{ storageKeys: string[] } | null> {
   const st = await r.students.get(studentId);
-  if (!st) return false;
+  if (!st) return null;
+  // Os metadados dos arquivos saem por cascata; os objetos, o chamador apaga
+  // do armazenamento depois que esta transação confirmar.
+  const storageKeys = (await r.files.forStudent(studentId)).map((f) => f.storageKey);
   await r.students.remove(studentId);
   if (st.userId) {
     const u = await r.users.get(st.userId);
     if (u && u.role === "student") await r.users.delete(u);
   }
-  return true;
+  return { storageKeys };
 }
 
 /**

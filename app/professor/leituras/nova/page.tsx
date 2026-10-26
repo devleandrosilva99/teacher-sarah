@@ -1,4 +1,5 @@
 import { requireTeacher } from "@/server/auth/session";
+import { uploadsAvailable } from "@/server/storage";
 import { subjects } from "@/server/db/repo";
 import PassageForm from "@/components/teacher/PassageForm";
 import { PageHeader } from "@/components/ui";
@@ -11,7 +12,7 @@ export default async function NovaLeituraPage() {
   return (
     <>
       <PageHeader title="Novo texto de leitura ou áudio" back={{ href: "/professor/leituras", label: "Leituras" }} />
-      <PassageForm subjects={subjectList} />
+      <PassageForm canUpload={uploadsAvailable()} subjects={subjectList} />
     </>
   );
 }

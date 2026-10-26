@@ -4,12 +4,14 @@ import { ArrowDown, ArrowUp, Check, X } from "lucide-react";
 import { countWords, type Contents, type Responses } from "@/lib/question-types";
 import type { PublicQuestion } from "@/lib/types";
 import { cx } from "@/components/ui";
+import { isAudioUrl } from "@/lib/files";
+import FileAnswer, { type FileInfo } from "./FileAnswer";
 
 type Value = Record<string, unknown>;
 
 export function Media({ url }: { url: string }) {
   if (!url) return null;
-  if (/\.(mp3|wav|ogg|m4a|aac)(\?|$)/i.test(url)) {
+  if (isAudioUrl(url)) {
     return <audio controls src={url} className="my-2 w-full" preload="none" />;
   }
   // eslint-disable-next-line @next/next/no-img-element
@@ -32,6 +34,8 @@ export default function QuestionPlayer({
   readOnly = false,
   detail,
   correctIds,
+  files,
+  submissionId,
 }: {
   question: PublicQuestion;
   value: Value;
@@ -41,6 +45,10 @@ export default function QuestionPlayer({
   detail?: Record<string, boolean>;
   /** Alternativas corretas (revisão de múltipla escolha). */
   correctIds?: string[];
+  /** Nomes e tamanhos dos arquivos já enviados (entrega de arquivo). */
+  files?: Record<string, FileInfo>;
+  /** Tentativa aberta: permite anexar arquivos (entrega de arquivo). */
+  submissionId?: string;
 }) {
   const set = (v: Value) => !readOnly && onChange?.(v);
   const name = `q-${question.id}`;
@@ -263,6 +271,20 @@ export default function QuestionPlayer({
             {c.minWords || c.maxWords ? ` · esperado: ${c.minWords ? `mín. ${c.minWords}` : ""}${c.minWords && c.maxWords ? ", " : ""}${c.maxWords ? `máx. ${c.maxWords}` : ""}` : ""}
           </p>
         </div>
+      );
+    }
+
+    case "file_upload": {
+      const ids = ((value as Responses["file_upload"]).fileIds ?? []).map(String);
+      return (
+        <FileAnswer
+          questionId={question.id}
+          content={question.content as Contents["file_upload"]}
+          fileIds={ids}
+          files={files}
+          submissionId={readOnly ? undefined : submissionId}
+          onChange={readOnly ? undefined : (next) => set({ fileIds: next })}
+        />
       );
     }
   }

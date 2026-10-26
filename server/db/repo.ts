@@ -7,6 +7,7 @@ import type {
   Assignment,
   AssignmentSummary,
   AuthTokenPurpose,
+  StoredFile,
   ClassGroup,
   Invitation,
   Lesson,
@@ -231,6 +232,22 @@ const toSubmissionSummary = (r: Row): SubmissionSummary => {
   const { responses: _r, answers: _a, ...rest } = toSubmission(r);
   return rest;
 };
+
+const toFile = (r: Row): StoredFile => ({
+  id: r.id,
+  teacherId: r.teacher_id,
+  uploadedBy: r.uploaded_by,
+  purpose: r.purpose,
+  studentId: str(r.student_id),
+  submissionId: str(r.submission_id),
+  questionId: str(r.question_id),
+  storageKey: r.storage_key,
+  originalName: r.original_name,
+  contentType: r.content_type,
+  sizeBytes: Number(r.size_bytes),
+  status: r.status,
+  createdAt: r.created_at,
+});
 
 const toLesson = (r: Row): Lesson => ({
   id: r.id,
@@ -867,6 +884,75 @@ export function makeRepo(db: Db) {
       },
       async markAllRead(userId: string) {
         await db.query(`UPDATE notifications SET read_at = now() WHERE user_id = $1 AND read_at IS NULL`, [userId]);
+      },
+    },
+
+    /** Metadados dos arquivos (ver server/storage e a migração 0004). A RLS decide quem vê. */
+    files: {
+      async get(id: string) {
+        if (!isUuid(id)) return null;
+        const r = await db.one(`SELECT * FROM files WHERE id = $1`, [id]);
+        return r ? toFile(r) : null;
+      },
+      async create(f: Omit<StoredFile, "createdAt" | "status">) {
+        const r = await db.one(
+          `INSERT INTO files (id, teacher_id, uploaded_by, purpose, student_id, submission_id, question_id, storage_key,
+             original_name, content_type, size_bytes, status)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'pending') RETURNING *`,
+          [f.id, f.teacherId, f.uploadedBy, f.purpose, nn(f.studentId), nn(f.submissionId), nn(f.questionId), f.storageKey,
+            f.originalName, f.contentType, f.sizeBytes]
+        );
+        return toFile(r!);
+      },
+      async markReady(id: string, sizeBytes: number, contentType: string) {
+        await db.query(`UPDATE files SET status = 'ready', size_bytes = $2, content_type = $3 WHERE id = $1`, [id, sizeBytes, contentType]);
+      },
+      async remove(id: string) {
+        await db.query(`DELETE FROM files WHERE id = $1`, [id]);
+      },
+      /** Arquivos prontos de uma entrega (opcionalmente de uma questão). */
+      async forSubmission(submissionId: string, questionId?: string) {
+        if (!isUuid(submissionId)) return [];
+        const rows = await db.query(
+          `SELECT * FROM files WHERE submission_id = $1 AND status = 'ready' AND ($2::uuid IS NULL OR question_id = $2)
+            ORDER BY created_at`,
+          [submissionId, questionId && isUuid(questionId) ? questionId : null]
+        );
+        return rows.map(toFile);
+      },
+      async byIds(ids: string[]) {
+        const valid = ids.filter(isUuid);
+        if (!valid.length) return [];
+        return (await db.query(`SELECT * FROM files WHERE id = ANY($1::uuid[])`, [valid])).map(toFile);
+      },
+      async forStudent(studentId: string) {
+        if (!isUuid(studentId)) return [];
+        return (await db.query(`SELECT * FROM files WHERE student_id = $1 ORDER BY created_at`, [studentId])).map(toFile);
+      },
+      /** Uploads que nunca foram confirmados (mais de 24 h): saem do banco; devolve as chaves para apagar. */
+      async takeStalePending(olderThanMs = 24 * 60 * 60_000) {
+        const rows = await db.query<{ storage_key: string }>(
+          `DELETE FROM files WHERE status = 'pending' AND created_at < now() - $1 * interval '1 millisecond' RETURNING storage_key`,
+          [olderThanMs]
+        );
+        return rows.map((x) => x.storage_key);
+      },
+      /** Liga as mídias do professor a um envio (só arquivos prontos de mídia dele). */
+      async linkToAssignment(teacherId: string, assignmentId: string, fileIds: string[]) {
+        const valid = [...new Set(fileIds.filter(isUuid))];
+        if (!valid.length) return 0;
+        const rows = await db.query(
+          `INSERT INTO assignment_files (teacher_id, assignment_id, file_id)
+           SELECT $1, $2, f.id FROM files f
+            WHERE f.id = ANY($3::uuid[]) AND f.teacher_id = $1 AND f.purpose = 'question_media' AND f.status = 'ready'
+           ON CONFLICT DO NOTHING RETURNING file_id`,
+          [teacherId, assignmentId, valid]
+        );
+        return rows.length;
+      },
+      async linkedAssignmentCount(fileId: string) {
+        const r = await db.one<{ n: number }>(`SELECT count(*)::int AS n FROM assignment_files WHERE file_id = $1`, [fileId]);
+        return r?.n ?? 0;
       },
     },
 
