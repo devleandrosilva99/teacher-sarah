@@ -4,6 +4,7 @@ import { cache } from "react";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { meta, withScope } from "@/server/db/repo";
+import { sessionIsCurrent } from "./tokens";
 import type { Role, Student, Teacher, User } from "@/lib/types";
 
 export const SESSION_COOKIE = "ts_session";
@@ -13,6 +14,8 @@ interface Payload {
   uid: string;
   role: Role;
   exp: number;
+  /** Versão da conta quando a sessão foi criada (ver users.session_version). */
+  v?: number;
 }
 
 const g = globalThis as unknown as { __tsSecret?: Promise<string> | null };
@@ -36,6 +39,7 @@ export async function createSession(user: User): Promise<void> {
     uid: user.id,
     role: user.role,
     exp: Math.floor(Date.now() / 1000) + MAX_AGE_S,
+    v: user.sessionVersion ?? 1,
   };
   const data = Buffer.from(JSON.stringify(payload)).toString("base64url");
   const token = `${data}.${sign(data, await secret())}`;
@@ -73,7 +77,9 @@ const loadSession = cache(async (): Promise<{ user: User | null; teacher: Teache
   const p = await readPayload();
   if (!p) return null;
   return withScope(null, async (r) => {
-    const user = await r.users.get(p.uid);
+    const found = await r.users.get(p.uid);
+    // Senha trocada ou redefinida depois desta sessão: ela não vale mais.
+    const user = found && sessionIsCurrent(found, p.v) ? found : null;
     const teacher = user?.role === "teacher" ? await r.teachers.byUserId(user.id) : null;
     return { user, teacher };
   });

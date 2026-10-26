@@ -6,6 +6,7 @@ import type {
   AppNotification,
   Assignment,
   AssignmentSummary,
+  AuthTokenPurpose,
   ClassGroup,
   Invitation,
   Lesson,
@@ -47,6 +48,8 @@ const toUser = (r: Row): User => ({
   name: r.name,
   blocked: r.blocked,
   createdAt: r.created_at,
+  emailVerifiedAt: str(r.email_verified_at),
+  sessionVersion: r.session_version ?? 1,
 });
 
 const toTeacher = (r: Row): Teacher => ({
@@ -326,11 +329,24 @@ export function makeRepo(db: Db) {
       },
       async create(u: User) {
         await db.query(
-          `INSERT INTO users (id, email, password_hash, role, name, blocked, created_at)
-           VALUES ($1, lower($2), $3, $4, $5, $6, $7)`,
-          [u.id, u.email, u.passwordHash, u.role, u.name, !!u.blocked, u.createdAt]
+          `INSERT INTO users (id, email, password_hash, role, name, blocked, created_at, email_verified_at)
+           VALUES ($1, lower($2), $3, $4, $5, $6, $7, $8)`,
+          [u.id, u.email, u.passwordHash, u.role, u.name, !!u.blocked, u.createdAt, nn(u.emailVerifiedAt)]
         );
-        return u;
+        return { ...u, emailVerifiedAt: u.emailVerifiedAt ?? "", sessionVersion: 1 };
+      },
+      /** Troca a senha e derruba as outras sessões (nova versão). Devolve a conta atualizada. */
+      async setPassword(id: string, passwordHash: string, opts: { verifyEmail?: boolean } = {}) {
+        const r = await db.one(
+          `UPDATE users SET password_hash = $2, session_version = session_version + 1,
+             email_verified_at = CASE WHEN $3 THEN coalesce(email_verified_at, now()) ELSE email_verified_at END
+           WHERE id = $1 RETURNING *`,
+          [id, passwordHash, !!opts.verifyEmail]
+        );
+        return r ? toUser(r) : null;
+      },
+      async markEmailVerified(id: string) {
+        await db.query(`UPDATE users SET email_verified_at = coalesce(email_verified_at, now()) WHERE id = $1`, [id]);
       },
       async put(u: User) {
         await db.query(`UPDATE users SET email = lower($2), password_hash = $3, name = $4, blocked = $5 WHERE id = $1`, [
@@ -843,20 +859,60 @@ export function makeRepo(db: Db) {
       },
     },
 
-    loginAttempts: {
-      async get(email: string): Promise<{ count: number; first: number }> {
-        const r = await db.one<{ count: number; first_at: string }>(`SELECT * FROM login_attempts WHERE email = $1`, [email]);
-        return r ? { count: r.count, first: new Date(r.first_at).getTime() } : { count: 0, first: 0 };
-      },
-      async set(email: string, v: { count: number; first: number }) {
+    /** Tokens de uso único (só o hash fica no banco). Ver server/auth/tokens.ts. */
+    authTokens: {
+      /** Cria um token novo e invalida os anteriores ainda não usados da mesma finalidade. */
+      async create(userId: string, purpose: AuthTokenPurpose, tokenHash: string, ttlMs: number) {
+        await db.query(`UPDATE auth_tokens SET used_at = now() WHERE user_id = $1 AND purpose = $2 AND used_at IS NULL`, [userId, purpose]);
         await db.query(
-          `INSERT INTO login_attempts (email, count, first_at) VALUES ($1, $2, $3)
-           ON CONFLICT (email) DO UPDATE SET count = $2, first_at = $3`,
-          [email, v.count, new Date(v.first).toISOString()]
+          `INSERT INTO auth_tokens (user_id, purpose, token_hash, expires_at) VALUES ($1, $2, $3, now() + $4 * interval '1 millisecond')`,
+          [userId, purpose, tokenHash, ttlMs]
         );
       },
-      async clear(email: string) {
-        await db.query(`DELETE FROM login_attempts WHERE email = $1`, [email]);
+      /** Dono do token se ele ainda vale (sem gastar). */
+      async peek(tokenHash: string, purpose: AuthTokenPurpose) {
+        const r = await db.one<{ user_id: string }>(
+          `SELECT user_id FROM auth_tokens WHERE token_hash = $1 AND purpose = $2 AND used_at IS NULL AND expires_at > now()`,
+          [tokenHash, purpose]
+        );
+        return r?.user_id ?? null;
+      },
+      /** Gasta o token, de forma atômica: dois usos simultâneos não passam os dois. */
+      async consume(tokenHash: string, purpose: AuthTokenPurpose) {
+        const r = await db.one<{ user_id: string }>(
+          `UPDATE auth_tokens SET used_at = now()
+            WHERE token_hash = $1 AND purpose = $2 AND used_at IS NULL AND expires_at > now()
+          RETURNING user_id`,
+          [tokenHash, purpose]
+        );
+        return r?.user_id ?? null;
+      },
+    },
+
+    /** Limite por janela fixa (login, pedidos de redefinição, reenvios). */
+    rateLimits: {
+      /** Quantas vezes a chave foi contada na janela atual (sem contar esta). */
+      async peek(key: string, windowMs: number) {
+        const r = await db.one<{ count: number }>(
+          `SELECT count FROM rate_limits WHERE key = $1 AND window_start > now() - $2 * interval '1 millisecond'`,
+          [key, windowMs]
+        );
+        return r?.count ?? 0;
+      },
+      /** Conta mais uma e devolve o total na janela (a janela recomeça quando vence). */
+      async hit(key: string, windowMs: number) {
+        const r = await db.one<{ count: number }>(
+          `INSERT INTO rate_limits AS t (key, window_start, count) VALUES ($1, now(), 1)
+           ON CONFLICT (key) DO UPDATE SET
+             count = CASE WHEN t.window_start <= now() - $2 * interval '1 millisecond' THEN 1 ELSE t.count + 1 END,
+             window_start = CASE WHEN t.window_start <= now() - $2 * interval '1 millisecond' THEN now() ELSE t.window_start END
+           RETURNING count`,
+          [key, windowMs]
+        );
+        return r!.count;
+      },
+      async clear(key: string) {
+        await db.query(`DELETE FROM rate_limits WHERE key = $1`, [key]);
       },
     },
 
@@ -934,11 +990,6 @@ export const notifications = {
   markAllRead: (userId: string) => withScope(null, (r) => r.notifications.markAllRead(userId)),
 };
 
-export const loginAttempts = {
-  get: (email: string) => withScope(null, (r) => r.loginAttempts.get(email)),
-  set: (email: string, v: { count: number; first: number }) => withScope(null, (r) => r.loginAttempts.set(email, v)),
-  clear: (email: string) => withScope(null, (r) => r.loginAttempts.clear(email)),
-};
 
 export const meta = {
   secret: () => withScope(null, (r) => r.meta.secret()),

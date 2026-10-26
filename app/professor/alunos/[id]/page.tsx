@@ -1,10 +1,11 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { Archive, Download, Pencil, RotateCcw } from "lucide-react";
+import { Archive, Download, Mail, Pencil, RotateCcw } from "lucide-react";
 import { requireTeacher } from "@/server/auth/session";
 import { withScope } from "@/server/db/repo";
 import { rowFor, summarize } from "@/server/services/assignments";
-import { createInvite, deleteStudent, setStudentStatus } from "@/server/actions/students";
+import { createInvite, deleteStudent, emailInvite, setStudentStatus } from "@/server/actions/students";
+import { MAIL_UNAVAILABLE, mailAvailable } from "@/server/mail";
 import { baseUrl } from "@/server/url";
 import { Avatar, Badge, Button, ButtonLink, Card, EmptyState, Notice, PageHeader, Stat, scoreVariant } from "@/components/ui";
 import CopyField from "@/components/CopyField";
@@ -18,11 +19,11 @@ export default async function AlunoDetalhePage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ novo?: string }>;
+  searchParams: Promise<{ novo?: string; email?: string }>;
 }) {
   const { teacher } = await requireTeacher();
   const { id } = await params;
-  const { novo } = await searchParams;
+  const { novo, email: emailResult } = await searchParams;
   // Uma transação, só com os dados deste aluno. Os envios vêm completos
   // (com as questões) porque o desempenho por habilidade precisa delas.
   const [data, base] = await Promise.all([
@@ -106,11 +107,29 @@ export default async function AlunoDetalhePage({
             </p>
           )}
           {invite && <div className="mt-3"><CopyField value={`${base}/convite/${invite.token}`} /></div>}
-          <form action={createInvite.bind(null, id)} className="mt-3">
-            <Button variant="secondary" type="submit">
-              {invite ? "Gerar outro link" : student.userId ? "Gerar link para nova senha" : "Gerar link de acesso"}
-            </Button>
-          </form>
+          {emailResult && (
+            <div className="mt-3">
+              {emailResult === "enviado" ? (
+                <Notice variant="success">Link enviado para {student.email}.</Notice>
+              ) : (
+                <Notice variant="danger">{emailResult === "indisponivel" ? MAIL_UNAVAILABLE : "Não foi possível enviar o e-mail agora. Copie o link e envie por outro meio."}</Notice>
+              )}
+            </div>
+          )}
+          <div className="mt-3 flex flex-wrap gap-2">
+            <form action={createInvite.bind(null, id)}>
+              <Button variant="secondary" type="submit">
+                {invite ? "Gerar outro link" : student.userId ? "Gerar link para nova senha" : "Gerar link de acesso"}
+              </Button>
+            </form>
+            {(invite || !student.userId) && mailAvailable() && (
+              <form action={emailInvite.bind(null, id)}>
+                <Button variant="secondary" type="submit">
+                  <Mail size={15} /> Enviar por e-mail
+                </Button>
+              </form>
+            )}
+          </div>
         </Card>
       )}
 

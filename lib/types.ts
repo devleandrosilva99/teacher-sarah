@@ -12,7 +12,13 @@ export interface User {
   name: string;
   blocked: boolean;
   createdAt: string;
+  /** "" = e-mail ainda não confirmado. */
+  emailVerifiedAt?: string;
+  /** Incrementa ao trocar/redefinir a senha; sessões de versões antigas caem. */
+  sessionVersion?: number;
 }
+
+export type AuthTokenPurpose = "password_reset" | "email_verify";
 
 export interface Teacher {
   id: string;

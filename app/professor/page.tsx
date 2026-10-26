@@ -3,14 +3,14 @@ import { CheckCircle2, Circle } from "lucide-react";
 import { requireTeacher } from "@/server/auth/session";
 import { withScope } from "@/server/db/repo";
 import { rowFor, summarize } from "@/server/services/assignments";
-import { Avatar, Badge, ButtonLink, Card, PageHeader, Stat, scoreVariant } from "@/components/ui";
+import { Avatar, Badge, ButtonLink, Card, Notice, PageHeader, Stat, scoreVariant } from "@/components/ui";
 import { formatWeekdayTime } from "@/lib/format";
 
 export const metadata = { title: "Início" };
 
-export default async function ProfessorHome({ searchParams }: { searchParams: Promise<{ bemvindo?: string }> }) {
+export default async function ProfessorHome({ searchParams }: { searchParams: Promise<{ bemvindo?: string; senha?: string }> }) {
   const { teacher } = await requireTeacher();
-  const { bemvindo } = await searchParams;
+  const { bemvindo, senha } = await searchParams;
   // Uma transação; envios e tentativas vêm resumidos (sem cópia congelada nem respostas).
   const { studs, asgs, subs, ls, hasQuestions, hasActivities, cls } = await withScope(teacher.id, async (r) => ({
     studs: await r.students.all(),
@@ -49,6 +49,7 @@ export default async function ProfessorHome({ searchParams }: { searchParams: Pr
   return (
     <>
       <PageHeader title={`Olá, ${teacher.name.split(" ")[0]}!`} subtitle="Resumo do seu dia" />
+      {senha === "redefinida" && <div className="mb-4"><Notice variant="success">Senha redefinida. As outras sessões abertas foram encerradas.</Notice></div>}
 
       {showSteps && (
         <Card className="mb-4">

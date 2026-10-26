@@ -2,18 +2,29 @@ import Link from "next/link";
 import { LogOut } from "lucide-react";
 import { requireAdmin } from "@/server/auth/session";
 import { logout } from "@/server/actions/auth";
-import { setTeacherBlocked } from "@/server/actions/admin";
-import { teachers, users, withScope } from "@/server/db/repo";
+import { sendTeacherResetLink, setTeacherBlocked } from "@/server/actions/admin";
+import { MAIL_UNAVAILABLE, mailAvailable } from "@/server/mail";
+import { withScope } from "@/server/db/repo";
 import ConfirmButton from "@/components/ConfirmButton";
-import { Badge, Button, Card, PageHeader, Stat } from "@/components/ui";
+import { Badge, Button, Card, Notice, PageHeader, Stat } from "@/components/ui";
 import { formatDate } from "@/lib/format";
 import { APP_NAME } from "@/lib/brand";
 
 export const metadata = { title: "Administração" };
 
-export default async function AdminPage() {
+const RESET_MESSAGES: Record<string, { variant: "success" | "danger"; text: string }> = {
+  enviado: { variant: "success", text: "Link de redefinição enviado ao professor (vale por 1 hora)." },
+  falhou: { variant: "danger", text: "Não foi possível enviar o e-mail. Veja o log do servidor." },
+  indisponivel: { variant: "danger", text: MAIL_UNAVAILABLE },
+};
+
+export default async function AdminPage({ searchParams }: { searchParams: Promise<{ reset?: string }> }) {
   const admin = await requireAdmin();
-  const list = await teachers.all();
+  const { reset } = await searchParams;
+  const resetMsg = reset ? RESET_MESSAGES[reset] : undefined;
+  const canMail = mailAvailable();
+  const [list, accounts] = await withScope(null, (r) => Promise.all([r.teachers.all(), r.users.all()]));
+  const userById = new Map(accounts.map((u) => [u.id, u]));
   // O administrador vê só contagens, não os dados pessoais dos alunos
   // (consulta agregada em escopo system).
   const counts = await withScope({ system: true }, (r) =>
@@ -26,12 +37,10 @@ export default async function AdminPage() {
     )
   );
   const byTeacher = new Map(counts.map((c) => [c.teacher_id, c]));
-  const rows = await Promise.all(
-    list.map(async (t) => {
-      const c = byTeacher.get(t.id);
-      return { t, u: await users.get(t.userId), students: c?.students ?? 0, questions: c?.questions ?? 0, assignments: c?.assignments ?? 0 };
-    })
-  );
+  const rows = list.map((t) => {
+    const c = byTeacher.get(t.id);
+    return { t, u: userById.get(t.userId), students: c?.students ?? 0, questions: c?.questions ?? 0, assignments: c?.assignments ?? 0 };
+  });
   rows.sort((a, b) => b.t.createdAt.localeCompare(a.t.createdAt));
 
   return (
@@ -45,6 +54,7 @@ export default async function AdminPage() {
           </div>
         </div>
         <PageHeader title="Professores" subtitle="Banco: PostgreSQL (Neon)" />
+        {resetMsg && <div className="mb-4"><Notice variant={resetMsg.variant}>{resetMsg.text}</Notice></div>}
         <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
           <Stat label="Professores" value={rows.length} />
           <Stat label="Bloqueados" value={rows.filter((r) => r.u?.blocked).length} />
@@ -60,6 +70,7 @@ export default async function AdminPage() {
                   <th className="py-2 font-normal">Página</th>
                   <th className="py-2 text-right font-normal">Alunos</th>
                   <th className="py-2 text-right font-normal">Questões</th>
+                  <th className="py-2 font-normal">E-mail verificado</th>
                   <th className="py-2 text-right font-normal">Desde</th>
                   <th className="py-2"></th>
                 </tr>
@@ -74,8 +85,16 @@ export default async function AdminPage() {
                     <td className="py-2"><Link href={`/p/${t.slug}`} className="text-xs text-brand" target="_blank">/p/{t.slug}</Link></td>
                     <td className="py-2 text-right">{ns}</td>
                     <td className="py-2 text-right">{nq}</td>
+                    <td className="py-2">{u?.emailVerifiedAt ? <Badge variant="success">Sim</Badge> : <Badge variant="warning">Não</Badge>}</td>
                     <td className="py-2 text-right text-xs text-ink-3">{formatDate(t.createdAt)}</td>
-                    <td className="py-2 text-right">
+                    <td className="flex flex-wrap justify-end gap-1.5 py-2">
+                      {u && canMail && (
+                        <form action={sendTeacherResetLink.bind(null, u.id)}>
+                          <ConfirmButton variant="secondary" className="px-2.5 py-1 text-xs" message={`Enviar a ${u.email} um link para criar uma nova senha?`}>
+                            Enviar link de redefinição
+                          </ConfirmButton>
+                        </form>
+                      )}
                       <form action={setTeacherBlocked.bind(null, t.id, !u?.blocked)}>
                         {u?.blocked ? (
                           <Button type="submit" variant="secondary" className="px-2.5 py-1 text-xs">Desbloquear</Button>

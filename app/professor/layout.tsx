@@ -6,6 +6,8 @@ import { requireTeacher } from "@/server/auth/session";
 import { logout } from "@/server/actions/auth";
 import { withScope } from "@/server/db/repo";
 import { APP_NAME } from "@/lib/brand";
+import { mailAvailable } from "@/server/mail";
+import VerifyEmailBanner from "@/components/teacher/VerifyEmailBanner";
 
 export default async function ProfessorLayout({ children }: { children: React.ReactNode }) {
   const { user, teacher } = await requireTeacher();
@@ -48,7 +50,10 @@ export default async function ProfessorLayout({ children }: { children: React.Re
           <SideNav items={items} />
           <p className="mt-6 hidden px-6 text-xs text-ink-3 lg:block">{APP_NAME}</p>
         </aside>
-        <main className="mx-auto w-full max-w-5xl px-4 py-6 lg:px-8">{children}</main>
+        <main className="mx-auto w-full max-w-5xl px-4 py-6 lg:px-8">
+          {!user.emailVerifiedAt && mailAvailable() && <VerifyEmailBanner email={user.email} />}
+          {children}
+        </main>
       </div>
     </div>
   );

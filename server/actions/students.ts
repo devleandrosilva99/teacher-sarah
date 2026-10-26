@@ -9,6 +9,9 @@ import { isUuid, withScope } from "@/server/db/repo";
 import type { Student } from "@/lib/types";
 import { newId, nowIso } from "@/lib/format";
 import { deleteClassTx, deleteStudentTx } from "@/server/services/flows";
+import { mailAvailable, sendMail } from "@/server/mail";
+import { inviteEmail } from "@/server/mail/templates";
+import { baseUrl } from "@/server/url";
 import type { FormState } from "./state";
 
 const str = (max: number) => z.string().trim().max(max).default("");
@@ -86,6 +89,16 @@ export async function saveStudent(_prev: FormState, formData: FormData): Promise
   redirect(`/professor/alunos/${result.student.id}${result.created ? "?novo=1" : ""}`);
 }
 
+function newInvitation(teacherId: string, st: Student) {
+  return {
+    token: randomBytes(24).toString("base64url"),
+    teacherId,
+    studentId: st.id,
+    email: st.email,
+    expiresAt: new Date(Date.now() + 7 * 86_400_000).toISOString(),
+  };
+}
+
 export async function createInvite(studentId: string): Promise<void> {
   const { teacher } = await requireTeacher();
   await withScope(teacher.id, async (r) => {
@@ -93,15 +106,33 @@ export async function createInvite(studentId: string): Promise<void> {
     if (!st || st.status !== "active") return;
     // Um link novo invalida os anteriores.
     await r.invitations.invalidateForStudent(studentId);
-    await r.invitations.put({
-      token: randomBytes(24).toString("base64url"),
-      teacherId: teacher.id,
-      studentId,
-      email: st.email,
-      expiresAt: new Date(Date.now() + 7 * 86_400_000).toISOString(),
-    });
+    await r.invitations.put(newInvitation(teacher.id, st));
   });
   revalidatePath(`/professor/alunos/${studentId}`);
+}
+
+/** Manda o link de acesso ao e-mail do aluno (usa o link válido ou gera um). */
+export async function emailInvite(studentId: string): Promise<void> {
+  const { teacher } = await requireTeacher();
+  const back = (result: string) => redirect(`/professor/alunos/${studentId}?email=${result}`);
+  if (!isUuid(studentId)) redirect("/professor/alunos");
+  if (!mailAvailable()) back("indisponivel");
+  const found = await withScope(teacher.id, async (r) => {
+    const st = await r.students.get(studentId);
+    if (!st || st.status !== "active") return null;
+    let inv = await r.invitations.validForStudent(studentId);
+    if (!inv) {
+      await r.invitations.invalidateForStudent(studentId);
+      const created = newInvitation(teacher.id, st);
+      await r.invitations.put(created);
+      inv = created;
+    }
+    return { st, inv };
+  });
+  if (!found) redirect("/professor/alunos");
+  const link = `${await baseUrl()}/convite/${found.inv.token}`;
+  const ok = await sendMail(inviteEmail(found.st.email, found.st.name, teacher.name, link, found.inv.expiresAt));
+  back(ok ? "enviado" : "falhou");
 }
 
 export async function setStudentStatus(studentId: string, status: "active" | "archived"): Promise<void> {
