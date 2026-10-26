@@ -1,12 +1,12 @@
-# Documentação do sistema
+# Documentação do sistema: Docentia
 
-Estado em 26/10/2026 · branch `fase1-postgres` (Fase 1: PostgreSQL e disciplinas). Os diagramas das telas, dos fluxos e das tabelas estão em [DIAGRAMA.md](DIAGRAMA.md); o que mudou na Fase 1 está em [RELATORIO-FASE1.md](RELATORIO-FASE1.md).
+Estado em 26/10/2026 · em produção em https://app-docentia.vercel.app (Fase 1: PostgreSQL e disciplinas). Os diagramas das telas, dos fluxos e das tabelas estão em [DIAGRAMA.md](DIAGRAMA.md); o que mudou na Fase 1 está em [RELATORIO-FASE1.md](RELATORIO-FASE1.md).
 
 ## 1. O que é
 
 Plataforma web para **professores de inglês** acompanharem seus alunos. Cada professor tem um espaço isolado, com disciplinas, alunos, turmas, banco de questões, atividades, correção, agenda e relatórios, além de uma página própria (`/p/nome-do-professor`) com a cor da sua marca. O aluno entra por convite do professor e vê só o que o professor passou para ele.
 
-Começou como protótipo de uma única professora ("Teacher Sarah") e foi reescrito como sistema para vários professores. O nome definitivo da plataforma ainda não foi escolhido: hoje está em `lib/brand.ts`.
+O nome da plataforma é **Docentia**, definido em `lib/brand.ts`, que é de onde todas as telas o leem. **Histórico:** o projeto começou como o protótipo "Teacher Sarah", de uma única professora, e foi reescrito como sistema para vários professores. A professora Sarah continua nos dados de demonstração como personagem; o repositório, a pasta e o pacote mantêm o nome antigo.
 
 **Estágio atual:** protótipo funcional, pronto para piloto. Todas as telas estão implementadas e os fluxos principais foram testados no navegador. Hospedagem: Vercel. Banco: PostgreSQL no Neon, com o isolamento entre professores garantido pelo próprio banco (Row Level Security).
 
@@ -275,9 +275,17 @@ As variáveis `POSTGRES_*`, `PG*` e `NEON_AUTH_*` que a integração Neon-Vercel
 | `npm run db:backup` | `pg_dump` com data no nome do arquivo, numa pasta fora do repositório |
 | `npm test` | Todos os testes |
 
-- **Desenvolvimento local:** o `.env.local` aponta para a branch **dev** do Neon.
-- **Produção:** usa a branch **main**.
-- **Preview da Vercel:** deve apontar para a branch dev. O passo a passo está no relatório da Fase 1.
+**Como está publicado:**
+
+| Ambiente | Endereço | Banco (Neon) | Variáveis do banco |
+| --- | --- | --- | --- |
+| Produção | https://app-docentia.vercel.app (o antigo teacher-sarah.vercel.app redireciona para ele) | branch **main** | criadas pela integração Neon-Vercel, que está ligada **só** ao ambiente Production |
+| Preview (pull requests) | endereço gerado pela Vercel para cada deploy | branch **dev** | `DATABASE_URL` e `DATABASE_URL_UNPOOLED` criadas à mão só para Preview, com `sslmode=verify-full` |
+| Desenvolvimento local | http://localhost:3000 | branch **dev** | `.env.local` |
+
+- **Região:** as funções da Vercel rodam em São Paulo (**gru1**), a mesma região do banco no Neon (`sa-east-1`). Funções em outra região (antes era Washington, `iad1`) deixam cada consulta bem mais lenta.
+- **Variáveis de Produção:** `ADMIN_EMAIL`, `ADMIN_PASSWORD` e `SEED_DEMO=false` (as contas de demonstração não existem em produção). Recomendado: `APP_URL=https://app-docentia.vercel.app`, para os links de convite sempre usarem o domínio de produção.
+- **Migrações em produção:** antes de juntar código com migração nova na `main`, rode `npm run db:migrate -- --env-file=<arquivo temporário com as URLs da main> --confirmar` e apague o arquivo depois.
 
 ## 9. Qualidade e testes
 

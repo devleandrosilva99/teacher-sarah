@@ -1,4 +1,6 @@
-# Teacher Sarah: plataforma para professores de inglês
+# Docentia: plataforma para professores de inglês
+
+Em produção em https://app-docentia.vercel.app. O projeto começou como o protótipo "Teacher Sarah", de uma única professora; o nome do repositório e da pasta continuam os antigos.
 
 Cada professor tem seu próprio espaço, com disciplinas, alunos, turmas, banco de questões, atividades, correção, agenda e relatórios. O aluno entra pela página do professor e vê só o que foi passado para ele.
 

@@ -6,7 +6,7 @@ A Fase 1 trocou o armazenamento (Redis, arquivo ou memória) por PostgreSQL no N
 
 - **Testes:** todos passam (13 sem banco e 19 de banco na branch dev), assim como a checagem de tipos e o build.
 - **Branch dev do Neon:** está migrada e com os dados de demonstração.
-- **Branch main (produção):** **ainda não foi migrada**. É o passo 4 da lista no fim deste relatório.
+- **Branch main (produção):** migrada (backup antes, migração `0001_init`, `app_user` conferido). O pull request #1 foi juntado na `main`, e a produção (https://app-docentia.vercel.app) roda a Fase 1. Desde então a plataforma se chama **Docentia**.
 
 ## 1. O que foi implementado
 
@@ -242,78 +242,40 @@ No fim, a branch dev foi recriada (`npm run db:reset`) só com os dados de demon
 
 ## 5. PRÓXIMOS PASSOS PARA O DESENVOLVEDOR
 
-Na ordem:
+### Concluídos
 
-1. **Revisar o código** na branch `fase1-postgres` (o diff está nos commits da branch) e, se quiser, rodar localmente:
+- [x] **Revisar o código** da branch `fase1-postgres`.
+- [x] **Instalar o `pg_dump` 18:** só as ferramentas de cliente, em `C:\Program Files\PostgreSQL\18\bin`; o `npm run db:backup` encontra a pasta sozinho.
+- [x] **Migrar a branch main do Neon (produção)**, antes do merge:
+  - backup antes da migração (`teacher-sarah-20261026-144016.dump`, em `~/teacher-sarah-backups`);
+  - migração `0001_init` aplicada;
+  - `app_user` conferido: sem BYPASSRLS, sem login e sem ser superusuário;
+  - arquivo temporário com as credenciais de produção apagado.
+- [x] **Variáveis de Produção na Vercel:** `ADMIN_EMAIL`, `ADMIN_PASSWORD` e `SEED_DEMO=false`. Não havia variáveis `KV_*` nem `UPSTASH_*`.
+- [x] **Preview apontando para a branch dev:** a integração Neon-Vercel ficou ligada só ao ambiente Production; o Preview usa `DATABASE_URL` e `DATABASE_URL_UNPOOLED` criadas à mão, com as URLs da branch dev.
+- [x] **`sslmode=verify-full`** no `.env.local` e no Preview.
+- [x] **Pull request #1 juntado na `main`.**
+- [x] **Testado em produção:**
+  - o login do administrador funciona;
+  - o login de demonstração não funciona, como esperado;
+  - o cadastro de professor cria a disciplina Inglês;
+  - o administrador lista e bloqueia professores.
+- [x] **Região das funções da Vercel** trocada de Washington (`iad1`) para São Paulo (`gru1`), a mesma do banco.
+- [x] **Domínio de produção:** https://app-docentia.vercel.app (o antigo teacher-sarah.vercel.app redireciona para ele).
 
-   ```bash
-   npm install
-   npm test
-   npm run dev
-   ```
+### Em aberto
 
-2. **`pg_dump` 18: já instalado** nesta máquina, em `C:\Program Files\PostgreSQL\18\bin`; o `npm run db:backup` o encontra sozinho. Para usar `pg_dump`, `pg_restore` ou `psql` direto no terminal, acrescente essa pasta ao PATH do seu usuário (Configurações do Windows → Sistema → Sobre → Configurações avançadas do sistema → Variáveis de Ambiente).
+1. **Papel do banco com login próprio.** Hoje o app conecta como `neondb_owner` e a RLS vale porque toda transação faz `SET LOCAL ROLE app_user`; uma injeção de SQL poderia, em tese, desfazer isso com `RESET ROLE` (ver seção 4). Para eliminar esse risco:
+   1. Crie no Neon, nas branches dev e main, um papel com login, sem BYPASSRLS e membro de `app_user`.
+   2. Use a URL desse papel como `DATABASE_URL` (o app).
+   3. O `DATABASE_URL_UNPOOLED` continua com o dono, para migrações e backup.
+   4. Na Vercel, como a variável de Produção vem da integração, será preciso sobrescrevê-la à mão ou desligar a integração para essa variável.
+2. **Trocar a senha da branch dev do Neon:**
+   1. No console do Neon: branch dev → **Roles** → `neondb_owner` → **Reset password**.
+   2. Atualize as duas URLs no `.env.local` e nas variáveis de Preview da Vercel.
+   3. Refaça o deploy do preview.
 
-3. **Criar um arquivo temporário com as credenciais de produção, fora do git.** No console do Neon, escolha a branch **main**, clique em **Connect** e copie as duas URLs (com e sem pooling). Crie `teacher-sarah/.env.producao.local` com:
+### Rotina
 
-   ```
-   DATABASE_URL=<URL da main com pooling>
-   DATABASE_URL_UNPOOLED=<URL da main sem pooling>
-   ```
-
-   O `.gitignore` já ignora qualquer `.env*`.
-
-4. **Migrar a branch main (produção) antes de juntar o código na branch principal:**
-   1. Backup da main (ela está vazia hoje, mas crie o hábito):
-
-      ```bash
-      npm run db:backup -- --env-file=.env.producao.local
-      ```
-
-   2. Migração (o script mostra o host antes; confira se é o da main):
-
-      ```bash
-      npm run db:migrate -- --env-file=.env.producao.local --confirmar
-      ```
-
-   3. Opcional, para conferir o papel que a migração criou na main:
-
-      ```sql
-      SELECT rolname, rolbypassrls FROM pg_roles WHERE rolname = 'app_user';
-      ```
-
-   4. **Apague o `.env.producao.local`.**
-
-5. **Configurar as variáveis de Produção na Vercel** (Settings → Environment Variables, ambiente *Production*):
-   - `DATABASE_URL` e `DATABASE_URL_UNPOOLED` já vêm da integração Neon e apontam para a main;
-   - adicione `ADMIN_EMAIL`, `ADMIN_PASSWORD` (forte) e **`SEED_DEMO=false`**, porque as senhas de demonstração estão no repositório público;
-   - remova `KV_REST_API_URL`, `KV_REST_API_TOKEN` e `UPSTASH_*`, se existirem (não são mais usadas).
-
-6. **Apontar o ambiente Preview da Vercel para a branch dev do Neon:**
-   1. Em Vercel → Integrations → Neon → Manage (ou em Storage → banco → Settings), veja se está ligada a criação de uma branch do Neon para cada preview. Se estiver, desligue: cada preview ganharia um banco novo sem migrações.
-   2. Em Settings → Environment Variables, para o ambiente **Preview**, defina `DATABASE_URL` e `DATABASE_URL_UNPOOLED` com as URLs da branch **dev**. Se as variáveis da integração valerem para todos os ambientes, desmarque *Preview* nelas e crie as de Preview à parte.
-   3. Opcional no Preview: `SEED_DEMO=true` (a dev já tem os dados de demonstração).
-
-7. **`sslmode=verify-full`:** já feito no `.env.local` e nas variáveis de Preview. Faça o mesmo nas URLs de **Produção** na Vercel, se a integração permitir editá-las; senão, o comportamento atual já é `verify-full`, e só o aviso no log continua. No arquivo temporário de produção do passo 3, use `sslmode=verify-full` também.
-
-8. **Publicar a branch e testar o preview:** peça o push da `fase1-postgres` (ou faça você), abra o pull request e teste o deploy de preview, que usa a branch dev.
-
-9. **Juntar na branch principal** só depois do passo 4. O deploy de produção usa a main já migrada; se `SEED_DEMO=false`, o primeiro acesso cria apenas o administrador.
-
-10. **Backups daqui em diante:**
-
-    ```bash
-    npm run db:backup
-    npm run db:backup -- --env-file=.env.producao.local
-    npm run db:backup -- --dir=D:\Backups
-    ```
-
-    - O primeiro é a branch dev, gravada em `~/teacher-sarah-backups`.
-    - O segundo é a produção (recrie o arquivo temporário do passo 3 e apague depois).
-    - O terceiro grava em outra pasta. Também dá para definir `BACKUP_DIR`.
-    - Restaurar: `pg_restore --clean --no-owner -d "<URL sem pooling>" arquivo.dump`.
-    - Destino e agendamento não estão configurados. Guarde os arquivos fora do repositório, de preferência em outro disco ou nuvem.
-
-11. **Próximas migrações:** crie `db/migrations/0002_<nome>.sql`. Rode na dev com `npm run db:migrate` e, antes de cada deploy de produção, na main como no passo 4.
-
-12. **(Futuro) Papel com login próprio:** para eliminar o risco do `RESET ROLE` (seção 4), crie no Neon um papel com login, sem BYPASSRLS e membro de `app_user`, e use a URL dele como `DATABASE_URL`. O `DATABASE_URL_UNPOOLED` continua com o dono, para as migrações.
+- **Backup:** use `npm run db:backup` para a branch dev. Para a produção, crie um arquivo temporário com as URLs da main (`sslmode=verify-full`), rode `npm run db:backup -- --env-file=<arquivo>` e apague o arquivo depois. Para restaurar: `pg_restore --clean --no-owner -d "<URL sem pooling>" arquivo.dump`. Destino e agendamento continuam por configurar.
+- **Próximas migrações:** crie `db/migrations/0002_<nome>.sql`. Rode na dev com `npm run db:migrate` e, **antes de juntar na `main`**, na produção com `--env-file=<arquivo temporário> --confirmar`.
