@@ -103,5 +103,7 @@ describe("consultas leves", { skip: SKIP }, () => {
     assert.equal(stats.active, 2);
     const fromB = await repo.withScope(B.teacher.id, (r) => r.questions.search({ text: "pergunta a" }));
     assert.deepEqual(fromB, []);
+    const byIds = await repo.withScope(A.teacher.id, (r) => r.questions.listByIds([A.question.id, B.question.id, "x"]));
+    assert.deepEqual(byIds.map((x) => x.id), [A.question.id], "pelos ids, só as do próprio professor");
   });
 });

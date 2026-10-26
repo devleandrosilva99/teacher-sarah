@@ -2,7 +2,10 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Archive, Pencil, RotateCcw } from "lucide-react";
 import { requireTeacher } from "@/server/auth/session";
-import { activities, assignments, classes, questions, students, submissions } from "@/server/db/repo";
+import { withScope } from "@/server/db/repo";
+import { baseUrl } from "@/server/url";
+import WhatsAppButton from "@/components/WhatsAppButton";
+import { assignmentMessage } from "@/lib/whatsapp";
 import { deleteAssignment, setActivityArchived, updateAssignmentDue } from "@/server/actions/activities";
 import { rowFor } from "@/server/services/assignments";
 import AssignForm from "@/components/teacher/AssignForm";
@@ -23,15 +26,23 @@ export default async function AtividadePage({
   const { teacher } = await requireTeacher();
   const { id } = await params;
   const sp = await searchParams;
-  const activity = await activities.get(teacher.id, id);
-  if (!activity) notFound();
-  const [qs, asgs, subs, studs, cls] = await Promise.all([
-    questions.all(teacher.id),
-    assignments.all(teacher.id),
-    submissions.all(teacher.id),
-    students.all(teacher.id),
-    classes.all(teacher.id),
+  const [data, base] = await Promise.all([
+    withScope(teacher.id, async (r) => {
+      const activity = await r.activities.get(id);
+      if (!activity) return null;
+      return {
+        activity,
+        qs: await r.questions.listByIds(activity.items.map((i) => i.questionId)),
+        asgs: (await r.assignments.summaries()).filter((a) => a.activityId === id),
+        subs: await r.submissions.summaries(),
+        studs: await r.students.all(),
+        cls: await r.classes.all(),
+      };
+    }),
+    baseUrl(),
   ]);
+  if (!data) notFound();
+  const { activity, qs, asgs, subs, studs, cls } = data;
   const qById = new Map(qs.map((q) => [q.id, q]));
   const sById = new Map(studs.map((s) => [s.id, s]));
   const sent = asgs.filter((a) => a.activityId === id).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
@@ -130,6 +141,14 @@ export default async function AtividadePage({
                       <Link href={`/professor/correcao/${row.best.id}`} className="text-xs text-brand hover:underline">
                         {row.best.status === "submitted" ? "Corrigir" : "Ver"}
                       </Link>
+                    )}
+                    {student && (row.status === "not_started" || row.status === "in_progress" || row.status === "overdue") && (
+                      <WhatsAppButton
+                        small
+                        label="WhatsApp"
+                        phone={student.phone}
+                        text={assignmentMessage(student.name, a.title, `${base}/aluno/atividades/${a.id}`, a.dueAt)}
+                      />
                     )}
                   </div>
                 ))}

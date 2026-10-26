@@ -9,6 +9,8 @@ import { MAIL_UNAVAILABLE, mailAvailable } from "@/server/mail";
 import { baseUrl } from "@/server/url";
 import { Avatar, Badge, Button, ButtonLink, Card, EmptyState, Notice, PageHeader, Stat, scoreVariant } from "@/components/ui";
 import CopyField from "@/components/CopyField";
+import WhatsAppButton from "@/components/WhatsAppButton";
+import { inviteMessage } from "@/lib/whatsapp";
 import ConfirmButton from "@/components/ConfirmButton";
 import { ScoreHistory, SkillBars } from "@/components/charts";
 import { ASSIGNMENT_STATUS } from "@/lib/labels";
@@ -122,6 +124,9 @@ export default async function AlunoDetalhePage({
                 {invite ? "Gerar outro link" : student.userId ? "Gerar link para nova senha" : "Gerar link de acesso"}
               </Button>
             </form>
+            {invite && (
+              <WhatsAppButton phone={student.phone} text={inviteMessage(student.name, teacher.name, `${base}/convite/${invite.token}`, invite.expiresAt)} />
+            )}
             {(invite || !student.userId) && mailAvailable() && (
               <form action={emailInvite.bind(null, id)}>
                 <Button variant="secondary" type="submit">

@@ -97,7 +97,7 @@ export async function assignActivity(_prev: FormState, formData: FormData): Prom
   });
   if ("error" in result) return { error: result.error };
   revalidatePath("/professor", "layout");
-  return { ok: `Atividade enviada para ${result.count} aluno(s).` };
+  return { ok: `Atividade enviada para ${result.count} aluno(s). Para avisar pelo WhatsApp, use os botões no envio logo abaixo.` };
 }
 
 export async function updateAssignmentDue(assignmentId: string, formData: FormData): Promise<void> {

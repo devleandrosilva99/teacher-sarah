@@ -622,6 +622,17 @@ export function makeRepo(db: Db) {
         );
         return rows.map(toQuestionListItem);
       },
+      /** Questões para listas (sem conteúdo nem gabarito), pelos ids. */
+      async listByIds(ids: string[]) {
+        const valid = ids.filter(isUuid);
+        if (!valid.length) return [];
+        const rows = await db.query(
+          `SELECT id, subject_id, type, prompt, passage_id, level_code, skill_key, tags, points, status, updated_at
+             FROM questions WHERE id = ANY($1::uuid[])`,
+          [valid]
+        );
+        return rows.map(toQuestionListItem);
+      },
       /** Contagem de questões não arquivadas e etiquetas usadas (de uma disciplina ou de todas). */
       async stats(subjectId?: string) {
         if (subjectId && !isUuid(subjectId)) return { active: 0, tags: [] as string[] };
