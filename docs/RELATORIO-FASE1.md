@@ -121,7 +121,11 @@ A lógica de entrega, correção e exclusão foi tirada das Server Actions e lev
   - aplica cada arquivo pendente numa transação, registra em `schema_migrations` e usa advisory lock;
   - num banco que não seja o do `.env.local`, exige `--confirmar`;
   - `--reset` só funciona com o `.env.local`.
-- **Backup** ([scripts/backup.mjs](../scripts/backup.mjs)): `pg_dump -Fc` com data e hora no nome, numa pasta fora do repositório. Ele recusa uma pasta dentro do repositório (testado) e explica como instalar o `pg_dump` quando falta (testado).
+- **Backup** ([scripts/backup.mjs](../scripts/backup.mjs)): `pg_dump -Fc` com data e hora no nome, numa pasta fora do repositório.
+  - Recusa uma pasta dentro do repositório e explica como instalar o `pg_dump` quando falta.
+  - Acha o `pg_dump` no PATH ou, no Windows, em `C:\Program Files\PostgreSQL\<versão>\bin`, porque o instalador não põe essa pasta no PATH.
+  - Com `sslmode=verify-full`, passa ao `pg_dump` as autoridades certificadoras do próprio Node, num arquivo temporário. O libpq exige um arquivo de certificados, e no Windows o `sslrootcert=system` não enxerga os do sistema.
+  - Testado de ponta a ponta na branch dev: dump de 103 KB com as 23 tabelas do `public`, as 28 políticas de RLS e as 9 tabelas do schema `neon_auth` (criado pela integração Neon Auth).
 - **Desenvolvimento local:** `.env.local` apontando para a branch dev do Neon, depois `npm run db:migrate` e `npm run dev`. Está documentado no README e na documentação.
 - **Removido:** os drivers de Redis, arquivo e memória, a faixa de "modo demonstração" e as variáveis `KV_*`.
 
@@ -223,8 +227,9 @@ No fim, a branch dev foi recriada (`npm run db:reset`) só com os dados de demon
 - **O arquivo foi salvo como `.env.local.txt`** pelo Windows; renomeei.
 - **`neondb_owner` tem BYPASSRLS** (ver 1.5); daí o papel `app_user`.
 - **Vazamento antigo, corrigido:** a exportação de dados do aluno incluía a "resposta esperada" mesmo quando a atividade estava configurada para nunca mostrar o gabarito. Agora segue a mesma regra da tela de resultado.
-- **Aviso do `pg` sobre SSL:** com `sslmode=require`, a versão atual do `pg` já valida o certificado como `verify-full`, mas avisa que a próxima versão principal vai mudar isso. Recomendo trocar para `sslmode=verify-full` nas URLs (ver Próximos passos).
-- **O servidor do Neon é PostgreSQL 18**, e o `pg_dump` não está instalado nesta máquina. Por isso o backup não foi executado de ponta a ponta: só testei a recusa de pasta dentro do repositório e a mensagem de instalação.
+- **Aviso do `pg` sobre SSL:** com `sslmode=require`, a versão atual do `pg` já validava o certificado como `verify-full`, mas avisava que a próxima versão principal vai mudar isso. As URLs do `.env.local` e do Preview passaram para `sslmode=verify-full`. A conexão foi conferida: TLS 1.3, com o certificado do Neon (Let's Encrypt) validado, e o aviso sumiu.
+- **`sslmode=verify-full` no `pg_dump`:** o libpq exige um arquivo de certificados raiz e, no Windows, `sslrootcert=system` falha. O script de backup resolve isso sozinho (ver 1.7). **Não** acrescente `sslrootcert` às URLs do `.env.local` ou da Vercel: o driver `pg` do app leria o valor como caminho de arquivo e deixaria de conectar.
+- **O servidor do Neon é PostgreSQL 18.** Instalei pelo winget (`PostgreSQL.PostgreSQL.18`) só as ferramentas de cliente, sem o servidor, o pgAdmin e o Stack Builder: `pg_dump` e `pg_restore` 18.6. A pasta `bin` não foi posta no PATH; o script de backup a encontra sozinho.
 
 **Diferenças em relação ao pedido ou ao comportamento anterior:**
 - **Papel separado sem login próprio:** a conexão do app ainda é a do dono, e a RLS vale por causa do `SET LOCAL ROLE`. Uma injeção de SQL poderia, em tese, desfazer isso com `RESET ROLE`. O risco é mitigado porque todas as consultas usam parâmetros e há o teste que impede trocar o papel no código. Um papel com login próprio eliminaria esse risco.
@@ -247,7 +252,7 @@ Na ordem:
    npm run dev
    ```
 
-2. **Instalar o `pg_dump` 18** (ferramentas de cliente do PostgreSQL 18, pelo instalador da EDB ou procurando com `winget search PostgreSQL`) e pôr a pasta `bin` no PATH. Confira com `pg_dump --version`.
+2. **`pg_dump` 18: já instalado** nesta máquina, em `C:\Program Files\PostgreSQL\18\bin`; o `npm run db:backup` o encontra sozinho. Para usar `pg_dump`, `pg_restore` ou `psql` direto no terminal, acrescente essa pasta ao PATH do seu usuário (Configurações do Windows → Sistema → Sobre → Configurações avançadas do sistema → Variáveis de Ambiente).
 
 3. **Criar um arquivo temporário com as credenciais de produção, fora do git.** No console do Neon, escolha a branch **main**, clique em **Connect** e copie as duas URLs (com e sem pooling). Crie `teacher-sarah/.env.producao.local` com:
 
@@ -289,7 +294,7 @@ Na ordem:
    2. Em Settings → Environment Variables, para o ambiente **Preview**, defina `DATABASE_URL` e `DATABASE_URL_UNPOOLED` com as URLs da branch **dev**. Se as variáveis da integração valerem para todos os ambientes, desmarque *Preview* nelas e crie as de Preview à parte.
    3. Opcional no Preview: `SEED_DEMO=true` (a dev já tem os dados de demonstração).
 
-7. **(Recomendado) Trocar `sslmode=require` por `sslmode=verify-full`** nas URLs (no `.env.local` e na Vercel). O comportamento atual já é esse; a troca só remove o aviso e evita surpresa na próxima versão do `pg`.
+7. **`sslmode=verify-full`:** já feito no `.env.local` e nas variáveis de Preview. Faça o mesmo nas URLs de **Produção** na Vercel, se a integração permitir editá-las; senão, o comportamento atual já é `verify-full`, e só o aviso no log continua. No arquivo temporário de produção do passo 3, use `sslmode=verify-full` também.
 
 8. **Publicar a branch e testar o preview:** peça o push da `fase1-postgres` (ou faça você), abra o pull request e teste o deploy de preview, que usa a branch dev.
 

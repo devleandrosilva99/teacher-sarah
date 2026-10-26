@@ -11,6 +11,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import tls from "node:tls";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { loadEnv } from "./migrate.mjs";
@@ -34,7 +35,21 @@ if (rel === "" || (!rel.startsWith("..") && !path.isAbsolute(rel))) {
   fail(`a pasta ${dir} fica dentro do repositório. Escolha uma pasta fora dele.`);
 }
 
-const version = spawnSync("pg_dump", ["--version"], { encoding: "utf8" });
+// pg_dump do PATH ou, no Windows, da instalação padrão mais nova
+// (C:\Program Files\PostgreSQL\<versão>\bin), que o instalador não põe no PATH.
+function findPgDump() {
+  if (spawnSync("pg_dump", ["--version"]).status === 0) return "pg_dump";
+  const base = path.join(process.env.ProgramFiles ?? "C:\\Program Files", "PostgreSQL");
+  if (process.platform !== "win32" || !fs.existsSync(base)) return "pg_dump";
+  const versions = fs.readdirSync(base).filter((v) => /^\d+$/.test(v)).sort((a, b) => Number(b) - Number(a));
+  for (const v of versions) {
+    const exe = path.join(base, v, "bin", "pg_dump.exe");
+    if (fs.existsSync(exe)) return exe;
+  }
+  return "pg_dump";
+}
+const PG_DUMP = findPgDump();
+const version = spawnSync(PG_DUMP, ["--version"], { encoding: "utf8" });
 if (version.error || version.status !== 0) {
   fail(
     "pg_dump não encontrado. Instale as ferramentas de cliente do PostgreSQL na mesma versão principal do servidor " +
@@ -43,13 +58,27 @@ if (version.error || version.status !== 0) {
   );
 }
 
+// Com sslmode=verify-full (ou verify-ca), o libpq do pg_dump exige um arquivo
+// de autoridades certificadoras. No Windows, "sslrootcert=system" não enxerga os
+// certificados do sistema, então usamos os do próprio Node (tls.rootCertificates,
+// que inclui a Let's Encrypt usada pelo Neon), num arquivo temporário. Só para o
+// pg_dump: o driver pg do app não precisa disso.
+let caFile = "";
+const dumpUrl = new URL(url);
+if (/^verify-(full|ca)$/.test(dumpUrl.searchParams.get("sslmode") ?? "") && !dumpUrl.searchParams.has("sslrootcert")) {
+  caFile = path.join(os.tmpdir(), `teacher-sarah-ca-${process.pid}.pem`);
+  fs.writeFileSync(caFile, tls.rootCertificates.join("\n"));
+  dumpUrl.searchParams.set("sslrootcert", caFile);
+}
+
 fs.mkdirSync(dir, { recursive: true });
 const stamp = new Date().toISOString().replace(/[-:]/g, "").replace("T", "-").slice(0, 15);
 const file = path.join(dir, `teacher-sarah-${stamp}.dump`);
 const { hostname, pathname } = new URL(url);
 console.log(`${version.stdout.trim()}\nBanco: ${hostname}${pathname}\nArquivo: ${file}`);
 
-const run = spawnSync("pg_dump", ["--format=custom", "--no-owner", "--no-privileges", `--file=${file}`, url], { stdio: "inherit" });
+const run = spawnSync(PG_DUMP, ["--format=custom", "--no-owner", "--no-privileges", `--file=${file}`, dumpUrl.toString()], { stdio: "inherit" });
+if (caFile) fs.rmSync(caFile, { force: true });
 if (run.status !== 0) {
   fs.rmSync(file, { force: true });
   fail("pg_dump falhou (veja a mensagem acima). Se a versão do servidor for mais nova que a do pg_dump, atualize as ferramentas.");
