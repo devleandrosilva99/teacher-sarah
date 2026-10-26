@@ -83,6 +83,8 @@ export interface ClassGroup {
   level: Level | "";
   description: string;
   studentIds: string[];
+  /** Turma arquivada: some das listas e seletores, mas mantém o histórico. */
+  archivedAt: string;
   createdAt: string;
 }
 

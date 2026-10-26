@@ -8,7 +8,7 @@ import { requireTeacher } from "@/server/auth/session";
 import { isUuid, withScope } from "@/server/db/repo";
 import type { Student } from "@/lib/types";
 import { newId, nowIso } from "@/lib/format";
-import { deleteStudentTx } from "@/server/services/flows";
+import { deleteClassTx, deleteStudentTx } from "@/server/services/flows";
 import type { FormState } from "./state";
 
 const str = (max: number) => z.string().trim().max(max).default("");
@@ -148,6 +148,7 @@ export async function saveClass(_prev: FormState, formData: FormData): Promise<F
       level: subject.levels.some((l) => l.code === level) ? level : "",
       description,
       studentIds,
+      archivedAt: existing?.archivedAt ?? "",
       createdAt: existing?.createdAt ?? nowIso(),
     });
   });
@@ -156,11 +157,21 @@ export async function saveClass(_prev: FormState, formData: FormData): Promise<F
   redirect(`/professor/turmas/${result.id}`);
 }
 
+export async function setClassArchived(classId: string, archived: boolean): Promise<void> {
+  const { teacher } = await requireTeacher();
+  if (isUuid(classId)) await withScope(teacher.id, (r) => r.classes.setArchived(classId, archived));
+  revalidatePath("/professor", "layout");
+  redirect(archived ? "/professor/turmas?arquivada=1" : `/professor/turmas/${classId}`);
+}
+
+/** Exclusão definitiva: só para turma sem nenhuma aula realizada (ver deleteClassTx). */
 export async function deleteClass(classId: string): Promise<void> {
   const { teacher } = await requireTeacher();
-  if (isUuid(classId)) await withScope(teacher.id, (r) => r.classes.remove(classId));
-  revalidatePath("/professor/turmas");
-  redirect("/professor/turmas");
+  if (!isUuid(classId)) redirect("/professor/turmas");
+  const result = await withScope(teacher.id, (r) => deleteClassTx(r, classId));
+  revalidatePath("/professor", "layout");
+  if ("error" in result && result.error === "has_done_lessons") redirect(`/professor/turmas/${classId}?erro=aulas`);
+  redirect("/professor/turmas?excluida=1");
 }
 
 function validCpf(value: string): boolean {

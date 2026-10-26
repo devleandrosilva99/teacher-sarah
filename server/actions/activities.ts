@@ -5,7 +5,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireTeacher } from "@/server/auth/session";
 import { isUuid, withScope } from "@/server/db/repo";
-import { createAssignment } from "@/server/services/assignments";
+import { createAssignment, resolveTargets } from "@/server/services/assignments";
 import { fromInputDateTime, newId, nowIso } from "@/lib/format";
 import type { Activity } from "@/lib/types";
 import type { FormState } from "./state";
@@ -90,21 +90,7 @@ export async function assignActivity(_prev: FormState, formData: FormData): Prom
   const result = await withScope(teacher.id, async (r) => {
     const activity = await r.activities.get(String(formData.get("activityId") ?? ""));
     if (!activity) return { error: "Atividade não encontrada." };
-    const [studs, cls] = [await r.students.all(), await r.classes.all()];
-    const active = new Set(studs.filter((x) => x.status === "active").map((x) => x.id));
-    const studentIds = new Set<string>();
-    let classId = "";
-    for (const t of targets) {
-      const [kind, id] = t.split(":");
-      if (kind === "aluno" && active.has(id)) studentIds.add(id);
-      if (kind === "turma") {
-        const c = cls.find((x) => x.id === id);
-        if (c) {
-          c.studentIds.filter((x) => active.has(x)).forEach((x) => studentIds.add(x));
-          if (targets.length === 1) classId = c.id;
-        }
-      }
-    }
+    const { studentIds, classId } = await resolveTargets(r, targets);
     if (studentIds.size === 0) return { error: "Nenhum aluno ativo nos destinos escolhidos." };
     await createAssignment(r, activity, { studentIds: [...studentIds], classId, releaseAt, dueAt });
     return { count: studentIds.size };

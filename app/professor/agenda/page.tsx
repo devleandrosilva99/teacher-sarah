@@ -39,7 +39,7 @@ export default async function AgendaPage({ searchParams }: { searchParams: Promi
         <LessonForm
           preselected={preselected}
           students={studs.filter((s) => s.status === "active").sort((a, b) => a.name.localeCompare(b.name)).map((s) => ({ id: s.id, name: s.name }))}
-          classes={cls.map((c) => ({ id: c.id, name: c.name }))}
+          classes={cls.filter((c) => !c.archivedAt).map((c) => ({ id: c.id, name: c.name }))}
         />
       </Card>
 

@@ -68,6 +68,29 @@ export async function createAssignment(
   return assignment;
 }
 
+/**
+ * Transforma os destinos escolhidos ("aluno:<id>", "turma:<id>") em alunos
+ * ativos. Turma arquivada não recebe envios novos.
+ */
+export async function resolveTargets(r: Repo, targets: string[]): Promise<{ studentIds: Set<string>; classId: string }> {
+  const [studs, cls] = [await r.students.all(), await r.classes.all()];
+  const active = new Set(studs.filter((x) => x.status === "active").map((x) => x.id));
+  const studentIds = new Set<string>();
+  let classId = "";
+  for (const t of targets) {
+    const [kind, id] = t.split(":");
+    if (kind === "aluno" && active.has(id)) studentIds.add(id);
+    if (kind === "turma") {
+      const c = cls.find((x) => x.id === id && !x.archivedAt);
+      if (c) {
+        c.studentIds.filter((x) => active.has(x)).forEach((x) => studentIds.add(x));
+        if (targets.length === 1) classId = c.id;
+      }
+    }
+  }
+  return { studentIds, classId };
+}
+
 /** Questões como o aluno as vê nesta tentativa (sem gabarito). */
 export function publicQuestionsFor(assignment: Assignment, submissionId: string): PublicQuestion[] {
   let list = assignment.questions;

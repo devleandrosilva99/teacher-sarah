@@ -87,7 +87,7 @@ export default async function AtividadePage({
             <AssignForm
               activityId={id}
               preselected={sp.atribuir}
-              classes={cls.map((c) => ({ id: c.id, name: c.name, count: c.studentIds.length }))}
+              classes={cls.filter((c) => !c.archivedAt).map((c) => ({ id: c.id, name: c.name, count: c.studentIds.length }))}
               students={active.map((s) => ({ id: s.id, name: s.name, level: s.levels[activity.subjectId] ?? "" }))}
             />
           )}

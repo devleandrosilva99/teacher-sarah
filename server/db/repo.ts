@@ -108,6 +108,7 @@ const toClass = (r: Row): ClassGroup => ({
   level: str(r.level_code),
   description: r.description,
   studentIds: r.student_ids ?? [],
+  archivedAt: str(r.archived_at),
   createdAt: r.created_at,
 });
 
@@ -454,16 +455,25 @@ export function makeRepo(db: Db) {
       },
       async put(c: ClassGroup) {
         await db.query(
-          `INSERT INTO classes (id, teacher_id, subject_id, name, level_code, description, created_at)
-           VALUES ($1, $2, $3, $4, $5, $6, $7)
-           ON CONFLICT (id) DO UPDATE SET subject_id = $3, name = $4, level_code = $5, description = $6`,
-          [c.id, c.teacherId, c.subjectId, c.name, nn(c.level), c.description, c.createdAt]
+          `INSERT INTO classes (id, teacher_id, subject_id, name, level_code, description, archived_at, created_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+           ON CONFLICT (id) DO UPDATE SET subject_id = $3, name = $4, level_code = $5, description = $6, archived_at = $7`,
+          [c.id, c.teacherId, c.subjectId, c.name, nn(c.level), c.description, nn(c.archivedAt), c.createdAt]
         );
         await db.query(`DELETE FROM class_members WHERE class_id = $1`, [c.id]);
         for (const sid of c.studentIds) {
           await db.query(`INSERT INTO class_members (teacher_id, class_id, student_id) VALUES ($1, $2, $3)`, [c.teacherId, c.id, sid]);
         }
         return c;
+      },
+      async setArchived(id: string, archived: boolean) {
+        if (!isUuid(id)) return;
+        await db.query(`UPDATE classes SET archived_at = CASE WHEN $2 THEN coalesce(archived_at, now()) ELSE NULL END WHERE id = $1`, [id, archived]);
+      },
+      /** Quantas aulas da turma já foram realizadas (impedem a exclusão definitiva). */
+      async doneLessonCount(id: string) {
+        if (!isUuid(id)) return 0;
+        return (await db.one<{ n: number }>(`SELECT count(*)::int AS n FROM lessons WHERE class_id = $1 AND status = 'done'`, [id]))?.n ?? 0;
       },
       async remove(id: string) {
         if (!isUuid(id)) return;

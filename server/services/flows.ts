@@ -120,3 +120,26 @@ export async function deleteStudentTx(r: Repo, studentId: string): Promise<boole
   }
   return true;
 }
+
+/**
+ * Exclusão definitiva de uma turma, só se nenhuma aula dela foi realizada
+ * (senão, o professor deve arquivar). As aulas agendadas que forem apagadas
+ * avisam os alunos como um cancelamento normal. A FK RESTRICT da migração 0002
+ * impede, no próprio banco, apagar uma turma que ainda tenha aulas.
+ */
+export async function deleteClassTx(r: Repo, classId: string): Promise<{ ok: true } | { error: "not_found" | "has_done_lessons" }> {
+  const group = await r.classes.get(classId);
+  if (!group) return { error: "not_found" };
+  if ((await r.classes.doneLessonCount(classId)) > 0) return { error: "has_done_lessons" };
+  const lessons = (await r.lessons.all()).filter((l) => l.classId === classId);
+  const members = (await r.students.all()).filter((s) => group.studentIds.includes(s.id));
+  const { formatWeekdayTime } = await import("@/lib/format");
+  for (const l of lessons) {
+    if (l.status === "scheduled" && new Date(l.startsAt).getTime() > Date.now()) {
+      for (const s of members) await notify(r, s.userId, `Aula de ${formatWeekdayTime(l.startsAt)} cancelada.`, "/aluno/agenda");
+    }
+    await r.lessons.remove(l.id);
+  }
+  await r.classes.remove(classId);
+  return { ok: true };
+}

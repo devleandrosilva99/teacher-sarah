@@ -108,9 +108,26 @@ async function setContext(client: pg.PoolClient, scope: Scope) {
 }
 
 /** Executa fn numa transação com o contexto de RLS definido. */
+/** Com DB_TRACE=1, cada transação escreve no log quantas idas ao banco fez e quanto tempo levou. */
+const TRACE = process.env.DB_TRACE === "1";
+
+function traced(client: pg.PoolClient): { client: pg.PoolClient; done: (label: string) => void } {
+  if (!TRACE) return { client, done: () => {} };
+  let count = 0;
+  const start = performance.now();
+  const original = client.query.bind(client) as (...args: unknown[]) => unknown;
+  const proxy = new Proxy(client, {
+    get(target, prop, receiver) {
+      if (prop === "query") return (...args: unknown[]) => (count++, original(...args));
+      return Reflect.get(target, prop, receiver);
+    },
+  });
+  return { client: proxy, done: (label) => console.log(`[db] ${label} idas=${count} ms=${(performance.now() - start).toFixed(1)}`) };
+}
+
 export async function transaction<T>(scope: Scope, fn: (db: Db) => Promise<T>, opts: { skipReady?: boolean } = {}): Promise<T> {
   if (!opts.skipReady) await ensureReady();
-  const client = await pool().connect();
+  const { client, done } = traced(await pool().connect());
   try {
     await client.query("BEGIN");
     await setContext(client, scope);
@@ -121,6 +138,7 @@ export async function transaction<T>(scope: Scope, fn: (db: Db) => Promise<T>, o
     await client.query("ROLLBACK").catch(() => {});
     throw err;
   } finally {
+    done("tx");
     client.release();
   }
 }

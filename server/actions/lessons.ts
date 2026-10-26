@@ -32,8 +32,11 @@ export async function createLesson(_prev: FormState, formData: FormData): Promis
     let studentId = "";
     let classId = "";
     if (kind === "aluno" && (await r.students.get(id))) studentId = id;
-    else if (kind === "turma" && (await r.classes.get(id))) classId = id;
-    else return { error: "Escolha o aluno ou a turma." };
+    else if (kind === "turma") {
+      const group = await r.classes.get(id);
+      if (group && !group.archivedAt) classId = id; // turma arquivada não recebe aulas novas
+    }
+    if (!studentId && !classId) return { error: "Escolha o aluno ou a turma." };
     const seriesId = repeat > 1 ? newId() : "";
     for (let i = 0; i < repeat; i++) {
       await r.lessons.put({

@@ -160,6 +160,7 @@ async function seedDemo(r: Repo): Promise<void> {
     level: "B1",
     description: "Grupo de conversação, terças às 19h.",
     studentIds: [lucas.id, rafael.id, julia.id],
+    archivedAt: "",
     createdAt: iso(-45),
   });
 
