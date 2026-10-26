@@ -7,7 +7,9 @@ export { APP_ROLE } from "./context-sql";
 
 // Conexão com o PostgreSQL (Neon).
 //
-// O app usa DATABASE_URL (pooler do Neon, PgBouncer em modo transação). Nesse
+// O app usa DATABASE_APP_URL (papel app_login, sem privilégios de dono; ver
+// scripts/app-login.mjs) ou, sem ela, DATABASE_URL (o dono). As duas pelo
+// pooler do Neon (PgBouncer em modo transação). Nesse
 // modo um SET de sessão se perde entre consultas, então o contexto da RLS é
 // definido com set_config(..., true), que vale só dentro da transação. Por isso
 // todo acesso aos dados passa por withScope(), que abre uma transação.
@@ -51,8 +53,14 @@ export function configureDb(c: Partial<Config>) {
 
 function pool(): pg.Pool {
   if (g.__tsPool) return g.__tsPool;
-  const connectionString = config.connectionString ?? process.env.DATABASE_URL;
+  const connectionString = config.connectionString ?? process.env.DATABASE_APP_URL ?? process.env.DATABASE_URL;
   if (!connectionString) throw new Error("DATABASE_URL não definida (veja .env.example).");
+  if (!config.connectionString && !process.env.DATABASE_APP_URL) {
+    console.warn(
+      "[db] AVISO: o app está conectado como dono do banco (DATABASE_URL). A RLS vale porque cada transação assume app_user, " +
+        "mas um RESET ROLE voltaria ao dono. Configure DATABASE_APP_URL (npm run db:app-login)."
+    );
+  }
   const p = new pg.Pool({
     connectionString,
     max: 5,

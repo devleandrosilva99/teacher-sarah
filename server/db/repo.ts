@@ -1014,6 +1014,14 @@ export function makeRepo(db: Db) {
     },
 
     meta: {
+      /** Com qual papel o app entrou no banco e se ele teria acesso de dono (painel do admin). */
+      async connection() {
+        return (await db.one<{ login: string; bypass: boolean; owner: boolean }>(
+          `SELECT session_user AS login,
+                  coalesce((SELECT rolbypassrls OR rolsuper FROM pg_roles WHERE rolname = session_user), false) AS bypass,
+                  EXISTS (SELECT 1 FROM pg_tables WHERE schemaname = current_schema() AND tableowner = session_user) AS owner`
+        ))!;
+      },
       /** Segredo das sessões, gerado uma vez e guardado no banco. */
       async secret() {
         const fresh = Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString("base64url");

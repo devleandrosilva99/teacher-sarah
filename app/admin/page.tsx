@@ -23,7 +23,8 @@ export default async function AdminPage({ searchParams }: { searchParams: Promis
   const { reset } = await searchParams;
   const resetMsg = reset ? RESET_MESSAGES[reset] : undefined;
   const canMail = mailAvailable();
-  const [list, accounts] = await withScope(null, async (r) => [await r.teachers.all(), await r.users.all()] as const);
+  const [list, accounts, conn] = await withScope(null, async (r) => [await r.teachers.all(), await r.users.all(), await r.meta.connection()] as const);
+  const ownerConnection = conn.bypass || conn.owner;
   const userById = new Map(accounts.map((u) => [u.id, u]));
   // O administrador vê só contagens, não os dados pessoais dos alunos
   // (consulta agregada em escopo system).
@@ -53,7 +54,15 @@ export default async function AdminPage({ searchParams }: { searchParams: Promis
             <form action={logout}><button className="rounded-lg p-1.5 hover:bg-surface-raised" aria-label="Sair"><LogOut size={16} /></button></form>
           </div>
         </div>
-        <PageHeader title="Professores" subtitle="Banco: PostgreSQL (Neon)" />
+        <PageHeader title="Professores" subtitle={`Banco: PostgreSQL (Neon) · conectado como ${conn.login}`} />
+        {ownerConnection && (
+          <div className="mb-4">
+            <Notice variant="warning">
+              O app está conectado ao banco como <strong>{conn.login}</strong>, que tem privilégios de dono. A RLS continua valendo (cada
+              transação assume app_user), mas o recomendado é configurar DATABASE_APP_URL com o papel app_login (veja RELATORIO-FASE2.md).
+            </Notice>
+          </div>
+        )}
         {resetMsg && <div className="mb-4"><Notice variant={resetMsg.variant}>{resetMsg.text}</Notice></div>}
         <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
           <Stat label="Professores" value={rows.length} />

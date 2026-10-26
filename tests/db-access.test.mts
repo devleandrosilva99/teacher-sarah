@@ -51,6 +51,8 @@ test("client.ts não exporta o pool nem conexões sem o papel app_user", () => {
   assert.equal((text.match(/\.connect\(\)/g) ?? []).length, 1);
   assert.match(text, /const begin = beginStatement\(scope, [^)]*\);[^\n]*\n[^\n]*\.connect\(\)\);\s*try \{\s*await client\.query\(begin\);/);
   assert.equal((text.match(/client\.query\(/g) ?? []).length, 5, "só begin, COMMIT, ROLLBACK e as duas de wrap()");
+  // O papel sem privilégios de dono (DATABASE_APP_URL) tem preferência sobre o dono.
+  assert.match(text, /process\.env\.DATABASE_APP_URL \?\? process\.env\.DATABASE_URL/);
 });
 
 test("o início da transação assume app_user e define o contexto só na transação", async () => {

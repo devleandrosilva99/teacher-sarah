@@ -11,7 +11,8 @@
     "db:migrate": "node scripts/migrate.mjs",
     "db:reset": "node scripts/migrate.mjs --reset && npm run db:seed",
     "db:seed": "node --conditions=react-server --import tsx scripts/seed.mts",
-    "db:backup": "node scripts/backup.mjs"
+    "db:backup": "node scripts/backup.mjs",
+    "db:app-login": "node scripts/app-login.mjs"
   },
   "dependencies": {
     "@vercel/blob": "2.8.2",
