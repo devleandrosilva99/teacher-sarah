@@ -1,4 +1,5 @@
 import { requireStudent } from "@/server/auth/session";
+import { withScope } from "@/server/db/repo";
 import { studentRows, summarize } from "@/server/services/assignments";
 import { ScoreHistory, SkillBars } from "@/components/charts";
 import { Card, PageHeader, Stat } from "@/components/ui";
@@ -7,7 +8,7 @@ export const metadata = { title: "Progresso" };
 
 export default async function ProgressoPage() {
   const { student, scope } = await requireStudent();
-  const sum = summarize(await studentRows(scope, student.id));
+  const sum = summarize(await withScope(scope, (r) => studentRows(r, student.id)));
   return (
     <>
       <PageHeader title="Seu progresso" />

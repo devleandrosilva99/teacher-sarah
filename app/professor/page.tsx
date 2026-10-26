@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { CheckCircle2, Circle } from "lucide-react";
 import { requireTeacher } from "@/server/auth/session";
-import { activities, assignments, classes, lessons, questions, students, submissions } from "@/server/db/repo";
+import { withScope } from "@/server/db/repo";
 import { rowFor, summarize } from "@/server/services/assignments";
 import { Avatar, Badge, ButtonLink, Card, PageHeader, Stat, scoreVariant } from "@/components/ui";
 import { formatWeekdayTime } from "@/lib/format";
@@ -11,23 +11,22 @@ export const metadata = { title: "Início" };
 export default async function ProfessorHome({ searchParams }: { searchParams: Promise<{ bemvindo?: string }> }) {
   const { teacher } = await requireTeacher();
   const { bemvindo } = await searchParams;
-  const [studs, asgs, subs, ls, qs, acts, cls] = await Promise.all([
-    students.all(teacher.id),
-    assignments.all(teacher.id),
-    submissions.all(teacher.id),
-    lessons.all(teacher.id),
-    questions.all(teacher.id),
-    activities.all(teacher.id),
-    classes.all(teacher.id),
-  ]);
+  // Uma transação; envios e tentativas vêm resumidos (sem cópia congelada nem respostas).
+  const { studs, asgs, subs, ls, hasQuestions, hasActivities, cls } = await withScope(teacher.id, async (r) => ({
+    studs: await r.students.all(),
+    asgs: await r.assignments.summaries(),
+    subs: await r.submissions.summaries(),
+    ls: await r.lessons.upcoming(new Date(Date.now() - 3600_000).toISOString()),
+    hasQuestions: await r.questions.exists(),
+    hasActivities: await r.activities.exists(),
+    cls: await r.classes.all(),
+  }));
   const active = studs.filter((s) => s.status === "active");
   const sName = new Map(studs.map((s) => [s.id, s]));
   const cName = new Map(cls.map((c) => [c.id, c.name]));
   const toGrade = subs.filter((s) => s.status === "submitted").sort((a, b) => a.submittedAt.localeCompare(b.submittedAt));
   const now = Date.now();
-  const upcoming = ls
-    .filter((l) => l.status === "scheduled" && new Date(l.startsAt).getTime() > now - 3600_000)
-    .sort((a, b) => a.startsAt.localeCompare(b.startsAt));
+  const upcoming = ls;
   const weekLessons = upcoming.filter((l) => new Date(l.startsAt).getTime() < now + 7 * 86_400_000).length;
 
   const attention = active
@@ -41,8 +40,8 @@ export default async function ProfessorHome({ searchParams }: { searchParams: Pr
 
   const steps = [
     { done: active.length > 0, label: "Cadastre um aluno e envie o link de acesso", href: "/professor/alunos/novo" },
-    { done: qs.length > 0, label: "Crie questões no banco", href: "/professor/questoes/nova" },
-    { done: acts.length > 0, label: "Monte uma atividade", href: "/professor/atividades/nova" },
+    { done: hasQuestions, label: "Crie questões no banco", href: "/professor/questoes/nova" },
+    { done: hasActivities, label: "Monte uma atividade", href: "/professor/atividades/nova" },
     { done: asgs.length > 0, label: "Envie a atividade para um aluno ou turma", href: "/professor/atividades" },
   ];
   const showSteps = bemvindo || steps.some((s) => !s.done);

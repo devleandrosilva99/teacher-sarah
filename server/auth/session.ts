@@ -3,7 +3,7 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import { cache } from "react";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
-import { meta, teachers, users, withScope } from "@/server/db/repo";
+import { meta, withScope } from "@/server/db/repo";
 import type { Role, Student, Teacher, User } from "@/lib/types";
 
 export const SESSION_COOKIE = "ts_session";
@@ -15,8 +15,16 @@ interface Payload {
   exp: number;
 }
 
+const g = globalThis as unknown as { __tsSecret?: Promise<string> | null };
+
+/** O segredo guardado no banco não muda: é lido uma vez por instância. */
 async function secret(): Promise<string> {
-  return process.env.SESSION_SECRET || (await meta.secret());
+  if (process.env.SESSION_SECRET) return process.env.SESSION_SECRET;
+  g.__tsSecret ??= meta.secret().catch((err) => {
+    g.__tsSecret = null;
+    throw err;
+  });
+  return g.__tsSecret;
 }
 
 function sign(data: string, key: string): string {
@@ -60,11 +68,20 @@ async function readPayload(): Promise<Payload | null> {
   }
 }
 
-/** Usuário logado (ou null). Contas bloqueadas contam como deslogadas. */
-export const getCurrentUser = cache(async (): Promise<User | null> => {
+/** Conta da sessão e, se for professor, o cadastro dele: uma transação por requisição. */
+const loadSession = cache(async (): Promise<{ user: User | null; teacher: Teacher | null } | null> => {
   const p = await readPayload();
   if (!p) return null;
-  const user = await users.get(p.uid);
+  return withScope(null, async (r) => {
+    const user = await r.users.get(p.uid);
+    const teacher = user?.role === "teacher" ? await r.teachers.byUserId(user.id) : null;
+    return { user, teacher };
+  });
+});
+
+/** Usuário logado (ou null). Contas bloqueadas contam como deslogadas. */
+export const getCurrentUser = cache(async (): Promise<User | null> => {
+  const user = (await loadSession())?.user;
   if (!user || user.blocked) return null;
   return user;
 });
@@ -86,7 +103,7 @@ export const requireTeacher = cache(async (): Promise<{ user: User; teacher: Tea
   const user = await getCurrentUser();
   if (!user) redirect("/entrar");
   if (user.role !== "teacher") redirect(homeFor(user.role));
-  const teacher = await teachers.byUserId(user.id);
+  const teacher = (await loadSession())?.teacher;
   if (!teacher) redirect("/sair");
   return { user, teacher };
 });
@@ -103,11 +120,17 @@ export const requireStudent = cache(async (): Promise<StudentContext> => {
   const user = await getCurrentUser();
   if (!user) redirect("/entrar");
   if (user.role !== "student") redirect(homeFor(user.role));
-  const student = await studentForUser(user.id);
+  // Mesma busca restrita de studentForUser (só por user_id), mais o professor
+  // e a conta dele (tabelas globais), numa transação só.
+  const found = await withScope({ system: true }, async (r) => {
+    const student = await r.students.byUserId(user.id);
+    const teacher = student ? await r.teachers.get(student.teacherId) : null;
+    const teacherUser = teacher ? await r.users.get(teacher.userId) : null;
+    return { student, teacher, teacherUser };
+  });
+  const { student, teacher, teacherUser } = found;
   if (!student || student.status !== "active") redirect("/sair?m=arquivado");
-  const teacher = await teachers.get(student.teacherId);
   if (!teacher) redirect("/sair?m=arquivado");
-  const teacherUser = await users.get(teacher.userId);
   if (teacherUser?.blocked) redirect("/sair?m=bloqueado");
   return { user, student, teacher, scope: { teacherId: teacher.id, studentId: student.id } };
 });

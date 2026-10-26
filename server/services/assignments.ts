@@ -1,5 +1,5 @@
 import "server-only";
-import { activities, assignments, submissions, type Repo, type Scope } from "@/server/db/repo";
+import { activities, type Repo } from "@/server/db/repo";
 import { grade, seededShuffle, shuffleContent } from "@/lib/question-types";
 import { newId, nowIso, percent } from "@/lib/format";
 import { notify } from "./notify";
@@ -7,11 +7,13 @@ import type {
   Activity,
   AnswerRecord,
   Assignment,
+  AssignmentSummary,
   Passage,
   PublicQuestion,
   SnapshotQuestion,
   Skill,
   Submission,
+  SubmissionSummary,
 } from "@/lib/types";
 
 /**
@@ -157,17 +159,29 @@ export function withTotals(sub: Submission): Submission {
 
 export type StudentAssignmentStatus = "not_started" | "in_progress" | "submitted" | "graded" | "overdue";
 
-export interface StudentAssignmentRow {
-  assignment: Assignment;
-  attempts: Submission[];
-  current: Submission | null;
-  best: Submission | null;
+/**
+ * Linha "envio × aluno". Funciona com o envio completo ou com o resumo (sem a
+ * cópia congelada) e com tentativas completas ou resumidas: as telas de lista
+ * usam os resumos; o desempenho por habilidade precisa dos completos.
+ */
+export interface StudentAssignmentRow<
+  A extends AssignmentSummary | Assignment = Assignment,
+  S extends SubmissionSummary | Submission = Submission,
+> {
+  assignment: A;
+  attempts: S[];
+  current: S | null;
+  best: S | null;
   status: StudentAssignmentStatus;
   attemptsLeft: number;
   percent: number | null;
 }
 
-export function rowFor(assignment: Assignment, studentId: string, subs: Submission[]): StudentAssignmentRow {
+export function rowFor<A extends AssignmentSummary | Assignment, S extends SubmissionSummary | Submission>(
+  assignment: A,
+  studentId: string,
+  subs: S[]
+): StudentAssignmentRow<A, S> {
   const attempts = subs
     .filter((s) => s.assignmentId === assignment.id && s.studentId === studentId)
     .sort((a, b) => a.attempt - b.attempt);
@@ -195,14 +209,29 @@ export function rowFor(assignment: Assignment, studentId: string, subs: Submissi
   };
 }
 
-/** Envios liberados para o aluno. Nas telas do aluno, passe o escopo dele. */
-export async function studentRows(scope: Exclude<Scope, null>, studentId: string): Promise<StudentAssignmentRow[]> {
-  const [all, subs] = await Promise.all([assignments.all(scope), submissions.all(scope)]);
+function releasedRows<A extends AssignmentSummary | Assignment, S extends SubmissionSummary | Submission>(
+  all: A[],
+  subs: S[],
+  studentId: string
+): StudentAssignmentRow<A, S>[] {
   const now = Date.now();
   return all
-    .filter((a) => a.studentIds.includes(studentId) && new Date(a.releaseAt).getTime() <= now)
+    .filter((a) => new Date(a.releaseAt).getTime() <= now)
     .map((a) => rowFor(a, studentId, subs))
     .sort((a, b) => b.assignment.createdAt.localeCompare(a.assignment.createdAt));
+}
+
+/**
+ * Envios liberados para o aluno, completos (com as questões e as respostas):
+ * para o desempenho por habilidade. Nas telas do aluno, use o escopo dele.
+ */
+export async function studentRows(r: Repo, studentId: string): Promise<StudentAssignmentRow[]> {
+  return releasedRows(await r.assignments.forStudent(studentId), await r.submissions.forStudent(studentId), studentId);
+}
+
+/** Envios liberados para o aluno, resumidos: para listas e contagens. */
+export async function studentSummaryRows(r: Repo, studentId: string): Promise<StudentAssignmentRow<AssignmentSummary, SubmissionSummary>[]> {
+  return releasedRows(await r.assignments.summaries({ studentId }), await r.submissions.summaries({ studentId }), studentId);
 }
 
 export interface ProgressSummary {
@@ -215,11 +244,13 @@ export interface ProgressSummary {
   history: { date: string; title: string; percent: number }[];
 }
 
-export function summarize(rows: StudentAssignmentRow[]): ProgressSummary {
+/** Com resumos (sem questões ou sem respostas), bySkill sai vazio; o resto é igual. */
+export function summarize(rows: StudentAssignmentRow<AssignmentSummary | Assignment, SubmissionSummary | Submission>[]): ProgressSummary {
   const graded = rows.filter((r) => r.percent !== null);
   const skill = new Map<Skill, { label: string; s: number; m: number; n: number }>();
   for (const r of graded) {
     const sub = r.best!;
+    if (!("questions" in r.assignment) || !("answers" in sub)) continue;
     for (const q of r.assignment.questions) {
       const a = sub.answers[q.id];
       if (!a || a.score === null) continue;
@@ -247,7 +278,7 @@ export function summarize(rows: StudentAssignmentRow[]): ProgressSummary {
  * O aluno vê o gabarito conforme a configuração da atividade. Com mais de uma
  * tentativa, só depois de esgotá-las (ou do prazo), para não virar cola.
  */
-export function canSeeAnswers(row: StudentAssignmentRow): boolean {
+export function canSeeAnswers(row: StudentAssignmentRow<AssignmentSummary | Assignment, SubmissionSummary | Submission>): boolean {
   const a = row.assignment;
   const duePassed = !!a.dueAt && new Date(a.dueAt).getTime() < Date.now();
   if (a.showAnswers === "never") return false;

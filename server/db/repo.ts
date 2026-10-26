@@ -5,14 +5,18 @@ import type {
   Activity,
   AppNotification,
   Assignment,
+  AssignmentSummary,
   ClassGroup,
   Invitation,
   Lesson,
   Passage,
   Question,
+  QuestionFilters,
+  QuestionListItem,
   Student,
   Subject,
   Submission,
+  SubmissionSummary,
   Teacher,
   User,
 } from "@/lib/types";
@@ -148,6 +152,20 @@ const toQuestion = (r: Row): Question => ({
   updatedAt: r.updated_at,
 });
 
+const toQuestionListItem = (r: Row): QuestionListItem => ({
+  id: r.id,
+  subjectId: r.subject_id,
+  type: r.type,
+  prompt: r.prompt,
+  passageId: str(r.passage_id),
+  level: str(r.level_code),
+  skill: r.skill_key,
+  tags: r.tags,
+  points: r.points,
+  status: r.status,
+  updatedAt: r.updated_at,
+});
+
 const toActivity = (r: Row): Activity => ({
   id: r.id,
   teacherId: r.teacher_id,
@@ -184,6 +202,11 @@ const toAssignment = (r: Row): Assignment => ({
   createdAt: r.created_at,
 });
 
+const toAssignmentSummary = (r: Row): AssignmentSummary => {
+  const { questions: _q, passages: _p, ...rest } = toAssignment(r);
+  return { ...rest, questionCount: r.question_count, totalPoints: r.total_points };
+};
+
 const toSubmission = (r: Row): Submission => ({
   id: r.id,
   teacherId: r.teacher_id,
@@ -200,6 +223,11 @@ const toSubmission = (r: Row): Submission => ({
   maxScore: r.max_score,
   generalFeedback: r.general_feedback,
 });
+
+const toSubmissionSummary = (r: Row): SubmissionSummary => {
+  const { responses: _r, answers: _a, ...rest } = toSubmission(r);
+  return rest;
+};
 
 const toLesson = (r: Row): Lesson => ({
   id: r.id,
@@ -258,6 +286,19 @@ const ASSIGNMENT_SELECT = `
   SELECT a.*,
     (SELECT coalesce(array_agg(s.student_id::text), '{}') FROM assignment_students s WHERE s.assignment_id = a.id) AS student_ids
   FROM assignments a`;
+
+// Sem o snapshot (JSONB com as questões e os textos): para listas e resumos.
+const ASSIGNMENT_SUMMARY_SELECT = `
+  SELECT a.id, a.teacher_id, a.activity_id, a.subject_id, a.class_id, a.title, a.instructions, a.release_at, a.due_at,
+    a.time_limit_min, a.max_attempts, a.shuffle, a.show_answers, a.created_at,
+    jsonb_array_length(coalesce(a.snapshot->'questions', '[]')) AS question_count,
+    (SELECT coalesce(sum((q->>'activityPoints')::numeric), 0) FROM jsonb_array_elements(coalesce(a.snapshot->'questions', '[]')) q) AS total_points,
+    (SELECT coalesce(array_agg(s.student_id::text), '{}') FROM assignment_students s WHERE s.assignment_id = a.id) AS student_ids
+  FROM assignments a`;
+
+const SUBMISSION_SUMMARY_SELECT = `
+  SELECT id, teacher_id, assignment_id, student_id, attempt, started_at, submitted_at, late, status, score, max_score, general_feedback
+  FROM submissions`;
 
 const LESSON_SELECT = `
   SELECT l.*,
@@ -485,6 +526,9 @@ export function makeRepo(db: Db) {
       async all() {
         return (await db.query(`SELECT * FROM passages ORDER BY updated_at DESC`)).map(toPassage);
       },
+      async titles() {
+        return db.query<{ id: string; title: string }>(`SELECT id, title FROM passages`);
+      },
       async get(id: string) {
         if (!isUuid(id)) return null;
         const r = await db.one(`SELECT * FROM passages WHERE id = $1`, [id]);
@@ -532,12 +576,56 @@ export function makeRepo(db: Db) {
         return q;
       },
       /** Desvincula as questões de um texto (o texto vai ser excluído). */
+      async exists() {
+        return !!(await db.one(`SELECT 1 FROM questions LIMIT 1`));
+      },
+      /** Busca do banco de questões, filtrada no banco e sem as colunas grandes. */
+      async search(f: QuestionFilters = {}) {
+        const conds: string[] = [];
+        const params: unknown[] = [];
+        const p = (v: unknown) => `$${params.push(v)}`;
+        if (f.subjectId) {
+          if (!isUuid(f.subjectId)) return [];
+          conds.push(`subject_id = ${p(f.subjectId)}`);
+        }
+        if (f.type) conds.push(`type = ${p(f.type)}`);
+        if (f.skill) conds.push(`skill_key = ${p(f.skill)}`);
+        if (f.level) conds.push(`level_code = ${p(f.level)}`);
+        if (f.tag) conds.push(`tags @> ARRAY[${p(f.tag)}]::text[]`);
+        if (!f.status || f.status === "active") conds.push(`status <> 'archived'`);
+        else conds.push(`status = ${p(f.status)}`);
+        if (f.text) {
+          const t = p(f.text.toLowerCase());
+          conds.push(`(position(${t} in lower(prompt)) > 0 OR EXISTS (SELECT 1 FROM unnest(tags) tg WHERE position(${t} in lower(tg)) > 0))`);
+        }
+        const rows = await db.query(
+          `SELECT id, subject_id, type, prompt, passage_id, level_code, skill_key, tags, points, status, updated_at
+             FROM questions ${conds.length ? `WHERE ${conds.join(" AND ")}` : ""}
+            ORDER BY updated_at DESC LIMIT ${p(f.limit ?? 200)}`,
+          params
+        );
+        return rows.map(toQuestionListItem);
+      },
+      /** Contagem de questões não arquivadas e etiquetas usadas (de uma disciplina ou de todas). */
+      async stats(subjectId?: string) {
+        if (subjectId && !isUuid(subjectId)) return { active: 0, tags: [] as string[] };
+        const r = await db.one<{ active: number; tags: string[] }>(
+          `SELECT (SELECT count(*)::int FROM questions WHERE status <> 'archived' AND ($1::uuid IS NULL OR subject_id = $1)) AS active,
+                  (SELECT coalesce(array_agg(DISTINCT tg ORDER BY tg), '{}') FROM questions, unnest(tags) tg
+                    WHERE $1::uuid IS NULL OR subject_id = $1) AS tags`,
+          [subjectId || null]
+        );
+        return { active: r?.active ?? 0, tags: r?.tags ?? [] };
+      },
       async unlinkPassage(passageId: string) {
         await db.query(`UPDATE questions SET passage_id = NULL, updated_at = now() WHERE passage_id = $1`, [passageId]);
       },
     },
 
     activities: {
+      async exists() {
+        return !!(await db.one(`SELECT 1 FROM activities LIMIT 1`));
+      },
       async all() {
         return (await db.query(`${ACTIVITY_SELECT} ORDER BY a.updated_at DESC`)).map(toActivity);
       },
@@ -592,6 +680,30 @@ export function makeRepo(db: Db) {
         }
         return a;
       },
+      async titles() {
+        return db.query<{ id: string; title: string }>(`SELECT id, title FROM assignments`);
+      },
+      /** Sem a cópia congelada; com studentId, só os envios daquele aluno. */
+      async summaries(opts: { studentId?: string } = {}) {
+        if (opts.studentId !== undefined && !isUuid(opts.studentId)) return [];
+        const where = opts.studentId
+          ? `WHERE EXISTS (SELECT 1 FROM assignment_students s WHERE s.assignment_id = a.id AND s.student_id = $1)`
+          : "";
+        return (await db.query(`${ASSIGNMENT_SUMMARY_SELECT} ${where} ORDER BY a.created_at DESC`, opts.studentId ? [opts.studentId] : [])).map(
+          toAssignmentSummary
+        );
+      },
+      /** Envios completos (com as questões) atribuídos a um aluno: desempenho por habilidade. */
+      async forStudent(studentId: string) {
+        if (!isUuid(studentId)) return [];
+        return (
+          await db.query(
+            `${ASSIGNMENT_SELECT} WHERE EXISTS (SELECT 1 FROM assignment_students s WHERE s.assignment_id = a.id AND s.student_id = $1)
+             ORDER BY a.created_at DESC`,
+            [studentId]
+          )
+        ).map(toAssignment);
+      },
       async setDue(id: string, dueAt: string) {
         await db.query(`UPDATE assignments SET due_at = $2 WHERE id = $1`, [id, nn(dueAt)]);
       },
@@ -604,6 +716,38 @@ export function makeRepo(db: Db) {
     submissions: {
       async all() {
         return (await db.query(`SELECT * FROM submissions ORDER BY started_at`)).map(toSubmission);
+      },
+      /** Tentativas sem as respostas, opcionalmente de um aluno ou de uma situação. */
+      async summaries(opts: { studentId?: string; status?: Submission["status"] } = {}): Promise<SubmissionSummary[]> {
+        if (opts.studentId !== undefined && !isUuid(opts.studentId)) return [];
+        const conds: string[] = [];
+        const params: unknown[] = [];
+        if (opts.studentId) conds.push(`student_id = $${params.push(opts.studentId)}`);
+        if (opts.status) conds.push(`status = $${params.push(opts.status)}`);
+        const where = conds.length ? `WHERE ${conds.join(" AND ")}` : "";
+        return (await db.query(`${SUBMISSION_SUMMARY_SELECT} ${where} ORDER BY started_at`, params)).map(toSubmissionSummary);
+      },
+      /** Tentativas completas de um aluno (com as respostas). */
+      async forStudent(studentId: string) {
+        if (!isUuid(studentId)) return [];
+        return (await db.query(`SELECT * FROM submissions WHERE student_id = $1 ORDER BY started_at`, [studentId])).map(toSubmission);
+      },
+      /**
+       * Fila de correção: entregas esperando nota (com quantas respostas faltam
+       * corrigir) e as últimas corrigidas. Sem as respostas em si.
+       */
+      async gradingQueue(recentLimit = 20) {
+        const open = `(SELECT count(*)::int FROM jsonb_each(answers) e WHERE e.value->'score' = 'null'::jsonb) AS open_count`;
+        const map = (r: Row) => ({ ...toSubmissionSummary(r), openCount: Number(r.open_count) });
+        const pending = await db.query(`${SUBMISSION_SUMMARY_SELECT.replace("FROM submissions", `, ${open} FROM submissions`)} WHERE status = 'submitted' ORDER BY submitted_at`);
+        const recent = await db.query(
+          `${SUBMISSION_SUMMARY_SELECT.replace("FROM submissions", `, ${open} FROM submissions`)} WHERE status = 'graded' ORDER BY submitted_at DESC LIMIT $1`,
+          [recentLimit]
+        );
+        return { pending: pending.map(map), recent: recent.map(map) };
+      },
+      async countByStatus(status: Submission["status"]) {
+        return Number((await db.one<{ n: string }>(`SELECT count(*) AS n FROM submissions WHERE status = $1`, [status]))?.n ?? 0);
       },
       async get(id: string) {
         if (!isUuid(id)) return null;
@@ -633,6 +777,21 @@ export function makeRepo(db: Db) {
     lessons: {
       async all() {
         return (await db.query(`${LESSON_SELECT} ORDER BY l.starts_at`)).map(toLesson);
+      },
+      /** Aulas individuais do aluno e das turmas de que ele faz parte. */
+      async forStudent(studentId: string) {
+        if (!isUuid(studentId)) return [];
+        return (
+          await db.query(
+            `${LESSON_SELECT} WHERE l.student_id = $1 OR l.class_id IN (SELECT m.class_id FROM class_members m WHERE m.student_id = $1)
+             ORDER BY l.starts_at`,
+            [studentId]
+          )
+        ).map(toLesson);
+      },
+      /** Aulas agendadas a partir de "from" (ISO), em ordem. */
+      async upcoming(from: string) {
+        return (await db.query(`${LESSON_SELECT} WHERE l.status = 'scheduled' AND l.starts_at > $1 ORDER BY l.starts_at`, [from])).map(toLesson);
       },
       async get(id: string) {
         if (!isUuid(id)) return null;

@@ -4,14 +4,14 @@ import SideNav, { type NavItem } from "@/components/nav/SideNav";
 import { Avatar } from "@/components/ui";
 import { requireTeacher } from "@/server/auth/session";
 import { logout } from "@/server/actions/auth";
-import { submissions } from "@/server/db/repo";
-import { unreadCount } from "@/server/services/notify";
+import { withScope } from "@/server/db/repo";
 import { APP_NAME } from "@/lib/brand";
 
 export default async function ProfessorLayout({ children }: { children: React.ReactNode }) {
   const { user, teacher } = await requireTeacher();
-  const [subs, unread] = await Promise.all([submissions.all(teacher.id), unreadCount(user.id)]);
-  const toGrade = subs.filter((s) => s.status === "submitted").length;
+  const [toGrade, unread] = await withScope(teacher.id, (r) =>
+    Promise.all([r.submissions.countByStatus("submitted"), r.notifications.unreadCount(user.id)])
+  );
 
   const items: NavItem[] = [
     { href: "/professor", label: "Início", icon: "home", exact: true },

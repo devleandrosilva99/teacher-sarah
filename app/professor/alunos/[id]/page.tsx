@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Archive, Download, Pencil, RotateCcw } from "lucide-react";
 import { requireTeacher } from "@/server/auth/session";
-import { assignments, classes, invitations, lessons, students, subjects, submissions } from "@/server/db/repo";
+import { withScope } from "@/server/db/repo";
 import { rowFor, summarize } from "@/server/services/assignments";
 import { createInvite, deleteStudent, setStudentStatus } from "@/server/actions/students";
 import { baseUrl } from "@/server/url";
@@ -23,18 +23,26 @@ export default async function AlunoDetalhePage({
   const { teacher } = await requireTeacher();
   const { id } = await params;
   const { novo } = await searchParams;
-  const student = await students.get(teacher.id, id);
-  if (!student) notFound();
-
-  const [asgs, subs, allLessons, allClasses, invite, base, subjectList] = await Promise.all([
-    assignments.all(teacher.id),
-    submissions.all(teacher.id),
-    lessons.all(teacher.id),
-    classes.all(teacher.id),
-    invitations.validForStudent(id),
+  // Uma transação, só com os dados deste aluno. Os envios vêm completos
+  // (com as questões) porque o desempenho por habilidade precisa delas.
+  const [data, base] = await Promise.all([
+    withScope(teacher.id, async (r) => {
+      const student = await r.students.get(id);
+      if (!student) return null;
+      return {
+        student,
+        asgs: await r.assignments.forStudent(id),
+        subs: await r.submissions.forStudent(id),
+        myLessons: await r.lessons.forStudent(id),
+        allClasses: await r.classes.all(),
+        invite: await r.invitations.validForStudent(id),
+        subjectList: await r.subjects.all(),
+      };
+    }),
     baseUrl(),
-    subjects.all(teacher.id),
   ]);
+  if (!data) notFound();
+  const { student, asgs, subs, allClasses, invite, subjectList } = data;
   const levelText = subjectList
     .filter((x) => student.levels[x.id])
     .map((x) => {
@@ -44,14 +52,11 @@ export default async function AlunoDetalhePage({
     })
     .join(" · ");
   const rows = asgs
-    .filter((a) => a.studentIds.includes(id))
     .map((a) => rowFor(a, id, subs))
     .sort((a, b) => b.assignment.createdAt.localeCompare(a.assignment.createdAt));
   const sum = summarize(rows);
   const myClasses = allClasses.filter((c) => c.studentIds.includes(id));
-  const myLessons = allLessons
-    .filter((l) => l.studentId === id || (l.classId && myClasses.some((c) => c.id === l.classId)))
-    .sort((a, b) => b.startsAt.localeCompare(a.startsAt));
+  const myLessons = [...data.myLessons].sort((a, b) => b.startsAt.localeCompare(a.startsAt));
   const archived = student.status === "archived";
 
   return (
