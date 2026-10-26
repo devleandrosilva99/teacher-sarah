@@ -5,12 +5,14 @@ import { ArrowDown, ArrowUp, FileText, Plus, Trash2 } from "lucide-react";
 import { saveActivity } from "@/server/actions/activities";
 import { initialState } from "@/server/actions/state";
 import { TYPE_LABELS, TYPE_SHORT } from "@/lib/question-types";
-import { QUESTION_TYPES, SKILLS, SKILL_LABELS, type Activity, type QuestionType, type ShowAnswers, type Skill } from "@/lib/types";
+import { QUESTION_TYPES, type Activity, type QuestionType, type ShowAnswers, type Skill, type Subject } from "@/lib/types";
+import SubjectPicker from "./SubjectPicker";
 import { SHOW_ANSWERS_LABELS } from "@/lib/labels";
 import { Badge, Button, Card, Field, Input, Notice, Select, Textarea } from "@/components/ui";
 
 export interface PickerQuestion {
   id: string;
+  subjectId: string;
   prompt: string;
   type: QuestionType;
   skill: Skill;
@@ -22,14 +24,21 @@ export interface PickerQuestion {
 
 export default function ActivityBuilder({
   activity,
-  bank,
-  passages,
+  bank: allQuestions,
+  passages: allPassages,
+  subjects,
 }: {
   activity?: Activity;
   bank: PickerQuestion[];
-  passages: { id: string; title: string }[];
+  passages: { id: string; title: string; subjectId: string }[];
+  subjects: Subject[];
 }) {
   const [state, action, pending] = useActionState(saveActivity, initialState);
+  // A disciplina é escolhida na criação; o banco mostra só as questões dela.
+  const [subjectId, setSubjectId] = useState(activity?.subjectId ?? subjects[0]?.id ?? "");
+  const subject = subjects.find((x) => x.id === subjectId);
+  const bank = useMemo(() => allQuestions.filter((q) => q.subjectId === subjectId), [allQuestions, subjectId]);
+  const passages = allPassages.filter((p) => p.subjectId === subjectId);
   const byId = useMemo(() => new Map(bank.map((q) => [q.id, q])), [bank]);
   const [title, setTitle] = useState(activity?.title ?? "");
   const [instructions, setInstructions] = useState(activity?.instructions ?? "");
@@ -66,13 +75,32 @@ export default function ActivityBuilder({
       return n;
     });
 
-  const payload = JSON.stringify({ id: activity?.id ?? "", title, instructions, items, timeLimitMin, maxAttempts, shuffle, showAnswers });
+  const changeSubject = (id: string) => {
+    if (items.length && !window.confirm("Trocar a disciplina remove as questões já escolhidas. Continuar?")) return;
+    setSubjectId(id);
+    setItems([]);
+    setSkill("");
+  };
+
+  const payload = JSON.stringify({ id: activity?.id ?? "", subjectId, title, instructions, items, timeLimitMin, maxAttempts, shuffle, showAnswers });
 
   return (
     <form action={action} className="flex flex-col gap-4">
       <input type="hidden" name="payload" value={payload} />
       <Card>
         <div className="grid gap-3 sm:grid-cols-4">
+          {subjects.length > 1 && (
+            <div className="sm:col-span-4">
+              <SubjectPicker
+                subjects={subjects}
+                value={subjectId}
+                onChange={changeSubject}
+                name="_subject"
+                disabled={!!activity}
+                hint={activity ? "A disciplina não muda depois de criada." : undefined}
+              />
+            </div>
+          )}
           <Field label="Título *" className="sm:col-span-4">
             <Input value={title} onChange={(e) => setTitle(e.target.value)} maxLength={150} placeholder="Ex.: Past simple: revisão" />
           </Field>
@@ -158,7 +186,7 @@ export default function ActivityBuilder({
             </select>
             <select value={skill} onChange={(e) => setSkill(e.target.value)} className="rounded-lg border border-line px-2 py-1.5 text-sm">
               <option value="">Habilidade</option>
-              {SKILLS.map((s) => <option key={s} value={s}>{SKILL_LABELS[s]}</option>)}
+              {(subject?.skills ?? []).map((k) => <option key={k.key} value={k.key}>{k.label}</option>)}
             </select>
           </div>
           <div className="flex max-h-96 flex-col gap-1 overflow-y-auto">

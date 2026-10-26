@@ -10,11 +10,11 @@ import { ASSIGNMENT_STATUS } from "@/lib/labels";
 import { formatDateTime, percent } from "@/lib/format";
 
 export default async function AtividadeAlunoPage({ params }: { params: Promise<{ id: string }> }) {
-  const { student, teacher } = await requireStudent();
+  const { student, scope } = await requireStudent();
   const { id } = await params;
-  const a = await assignments.get(teacher.id, id);
+  const a = await assignments.get(scope, id);
   if (!a || !a.studentIds.includes(student.id) || new Date(a.releaseAt).getTime() > Date.now()) notFound();
-  const row = rowFor(a, student.id, await submissions.all(teacher.id));
+  const row = rowFor(a, student.id, await submissions.all(scope));
   const total = a.questions.reduce((s, q) => s + q.activityPoints, 0);
   const st = ASSIGNMENT_STATUS[row.status];
   const finished = row.attempts.filter((s) => s.status !== "in_progress");

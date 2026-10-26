@@ -4,8 +4,9 @@ import { useActionState, useMemo, useState } from "react";
 import { Eye, Pencil } from "lucide-react";
 import { saveQuestion } from "@/server/actions/questions";
 import { initialState } from "@/server/actions/state";
-import { buildQuestion, emptySource, TYPE_LABELS, type Sources } from "@/lib/question-types";
-import { LEVELS, QUESTION_TYPES, SKILLS, SKILL_LABELS, type Level, type Question, type QuestionType, type Skill } from "@/lib/types";
+import { buildQuestion, emptySource, typesForSubject, TYPE_LABELS, type Sources } from "@/lib/question-types";
+import type { Level, Question, QuestionType, Skill, Subject } from "@/lib/types";
+import SubjectPicker from "@/components/teacher/SubjectPicker";
 import { Button, Card, Field, Input, Notice, Select, Textarea, cx } from "@/components/ui";
 import SourceEditor from "./SourceEditors";
 import QuestionPlayer, { Media } from "./QuestionPlayer";
@@ -13,20 +14,34 @@ import QuestionPlayer, { Media } from "./QuestionPlayer";
 interface PassageOption {
   id: string;
   title: string;
+  subjectId: string;
+}
+
+function defaultSkill(subject: Subject | undefined, preferReading: boolean): Skill {
+  const keys = (subject?.skills ?? []).map((k) => k.key);
+  if (preferReading && keys.includes("reading")) return "reading";
+  return keys.includes("grammar") ? "grammar" : keys[0] ?? "";
 }
 
 export default function QuestionEditor({
   question,
+  subjects,
   passages,
   defaultPassageId = "",
+  defaultSubjectId = "",
   next = "",
 }: {
   question?: Question;
+  subjects: Subject[];
   passages: PassageOption[];
   defaultPassageId?: string;
+  defaultSubjectId?: string;
   next?: string;
 }) {
   const [state, action, pending] = useActionState(saveQuestion, initialState);
+  const [subjectId, setSubjectId] = useState(question?.subjectId ?? (defaultSubjectId || subjects[0]?.id || ""));
+  const subject = subjects.find((x) => x.id === subjectId);
+  const allowedTypes = typesForSubject(subject?.templateKey ?? "");
   const [type, setType] = useState<QuestionType>(question?.type ?? "single_choice");
   const [source, setSource] = useState<Sources[QuestionType]>((question?.source as Sources[QuestionType]) ?? emptySource("single_choice"));
   const [prompt, setPrompt] = useState(question?.prompt ?? "");
@@ -34,7 +49,7 @@ export default function QuestionEditor({
   const [mediaUrl, setMediaUrl] = useState(question?.mediaUrl ?? "");
   const [passageId, setPassageId] = useState(question?.passageId ?? defaultPassageId);
   const [level, setLevel] = useState<Level | "">(question?.level ?? "");
-  const [skill, setSkill] = useState<Skill>(question?.skill ?? (defaultPassageId ? "reading" : "grammar"));
+  const [skill, setSkill] = useState<Skill>(question?.skill ?? defaultSkill(subject, !!defaultPassageId));
   const [tags, setTags] = useState((question?.tags ?? []).join(", "));
   const [points, setPoints] = useState(question?.points ?? (type === "open" ? 2 : 1));
   const [explanation, setExplanation] = useState(question?.explanation ?? "");
@@ -42,6 +57,15 @@ export default function QuestionEditor({
   const [previewValue, setPreviewValue] = useState<Record<string, unknown>>({});
 
   const built = useMemo(() => buildQuestion(type, source), [type, source]);
+
+  function changeSubject(id: string) {
+    const next = subjects.find((x) => x.id === id);
+    setSubjectId(id);
+    setPassageId("");
+    setLevel("");
+    setSkill(defaultSkill(next, false));
+    if (!typesForSubject(next?.templateKey ?? "").includes(type)) changeType(typesForSubject(next?.templateKey ?? "")[0] ?? "single_choice");
+  }
 
   function changeType(t: QuestionType) {
     setType(t);
@@ -52,6 +76,7 @@ export default function QuestionEditor({
 
   const payload = JSON.stringify({
     id: question?.id ?? "",
+    subjectId,
     type,
     prompt,
     instructions,
@@ -70,10 +95,16 @@ export default function QuestionEditor({
     <form action={action} className="flex flex-col gap-4">
       <input type="hidden" name="payload" value={payload} />
 
+      {subjects.length > 1 ? (
+        <Card>
+          <SubjectPicker subjects={subjects} value={subjectId} onChange={changeSubject} name="_subject" />
+        </Card>
+      ) : null}
+
       <Card>
         <Field label="Tipo de questão">
           <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-4">
-            {QUESTION_TYPES.map((t) => (
+            {allowedTypes.map((t) => (
               <button
                 key={t}
                 type="button"
@@ -150,13 +181,13 @@ export default function QuestionEditor({
             <div className="grid gap-3 sm:grid-cols-4">
               <Field label="Habilidade">
                 <Select value={skill} onChange={(e) => setSkill(e.target.value as Skill)}>
-                  {SKILLS.map((s) => <option key={s} value={s}>{SKILL_LABELS[s]}</option>)}
+                  {(subject?.skills ?? []).map((k) => <option key={k.key} value={k.key}>{k.label}</option>)}
                 </Select>
               </Field>
               <Field label="Nível">
                 <Select value={level} onChange={(e) => setLevel(e.target.value as Level | "")}>
                   <option value="">—</option>
-                  {LEVELS.map((l) => <option key={l} value={l}>{l}</option>)}
+                  {(subject?.levels ?? []).map((l) => <option key={l.code} value={l.code}>{l.code}</option>)}
                 </Select>
               </Field>
               <Field label="Pontos">
@@ -165,7 +196,7 @@ export default function QuestionEditor({
               <Field label="Texto de leitura">
                 <Select value={passageId} onChange={(e) => setPassageId(e.target.value)}>
                   <option value="">Nenhum</option>
-                  {passages.map((p) => <option key={p.id} value={p.id}>{p.title}</option>)}
+                  {passages.filter((p) => p.subjectId === subjectId).map((p) => <option key={p.id} value={p.id}>{p.title}</option>)}
                 </Select>
               </Field>
               <Field label="Etiquetas (separe por vírgula)" className="sm:col-span-4">

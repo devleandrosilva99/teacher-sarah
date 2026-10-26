@@ -10,12 +10,12 @@ import { SHOW_ANSWERS_LABELS } from "@/lib/labels";
 export const metadata = { title: "Resultado" };
 
 export default async function ResultadoPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ e?: string }> }) {
-  const { student, teacher } = await requireStudent();
+  const { student, scope } = await requireStudent();
   const { id } = await params;
   const { e } = await searchParams;
-  const a = await assignments.get(teacher.id, id);
+  const a = await assignments.get(scope, id);
   if (!a || !a.studentIds.includes(student.id)) notFound();
-  const subs = await submissions.all(teacher.id);
+  const subs = await submissions.all(scope);
   const row = rowFor(a, student.id, subs);
   const sub = row.attempts.find((s) => s.id === e && s.status !== "in_progress") ?? row.best;
   if (!sub || sub.status === "in_progress") notFound();

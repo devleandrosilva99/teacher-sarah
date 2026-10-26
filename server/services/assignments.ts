@@ -1,5 +1,5 @@
 import "server-only";
-import { activities, assignments, passages, questions, students, submissions } from "@/server/db/repo";
+import { activities, assignments, submissions, type Repo, type Scope } from "@/server/db/repo";
 import { grade, seededShuffle, shuffleContent } from "@/lib/question-types";
 import { newId, nowIso, percent } from "@/lib/format";
 import { notify } from "./notify";
@@ -14,25 +14,36 @@ import type {
   Submission,
 } from "@/lib/types";
 
+/**
+ * Envia uma atividade: grava o envio com a cópia congelada das questões,
+ * liga os alunos e notifica cada um, tudo na transação de `r`.
+ */
 export async function createAssignment(
+  r: Repo,
   activity: Activity,
   target: { studentIds: string[]; classId: string; releaseAt: string; dueAt: string }
 ): Promise<Assignment> {
-  const teacherId = activity.teacherId;
-  const all = await questions.all(teacherId);
+  const [all, subject, passageList, studentList] = await Promise.all([
+    r.questions.all(),
+    r.subjects.get(activity.subjectId),
+    r.passages.all(),
+    r.students.all(),
+  ]);
   const byId = new Map(all.map((q) => [q.id, q]));
+  const skillLabel = new Map((subject?.skills ?? []).map((k) => [k.key, k.label]));
   const snap: SnapshotQuestion[] = [];
   for (const item of activity.items) {
     const q = byId.get(item.questionId);
-    if (q) snap.push({ ...q, activityPoints: item.points });
+    if (q) snap.push({ ...q, activityPoints: item.points, skillLabel: skillLabel.get(q.skill) ?? q.skill });
   }
   const passageIds = new Set(snap.map((q) => q.passageId).filter(Boolean));
-  const usedPassages: Passage[] = (await passages.all(teacherId)).filter((p) => passageIds.has(p.id));
+  const usedPassages: Passage[] = passageList.filter((p) => passageIds.has(p.id));
 
   const assignment: Assignment = {
     id: newId(),
-    teacherId,
+    teacherId: activity.teacherId,
     activityId: activity.id,
+    subjectId: activity.subjectId,
     title: activity.title,
     instructions: activity.instructions,
     studentIds: Array.from(new Set(target.studentIds)),
@@ -47,12 +58,11 @@ export async function createAssignment(
     passages: usedPassages,
     createdAt: nowIso(),
   };
-  await assignments.put(assignment);
+  await r.assignments.create(assignment);
 
-  const studentList = await students.all(teacherId);
-  for (const s of studentList) {
-    if (assignment.studentIds.includes(s.id)) {
-      await notify(s.userId, `Nova atividade: ${assignment.title}`, `/aluno/atividades/${assignment.id}`);
+  for (const st of studentList) {
+    if (assignment.studentIds.includes(st.id)) {
+      await notify(r, st.userId, `Nova atividade: ${assignment.title}`, `/aluno/atividades/${assignment.id}`);
     }
   }
   return assignment;
@@ -162,8 +172,9 @@ export function rowFor(assignment: Assignment, studentId: string, subs: Submissi
   };
 }
 
-export async function studentRows(teacherId: string, studentId: string): Promise<StudentAssignmentRow[]> {
-  const [all, subs] = await Promise.all([assignments.all(teacherId), submissions.all(teacherId)]);
+/** Envios liberados para o aluno. Nas telas do aluno, passe o escopo dele. */
+export async function studentRows(scope: Exclude<Scope, null>, studentId: string): Promise<StudentAssignmentRow[]> {
+  const [all, subs] = await Promise.all([assignments.all(scope), submissions.all(scope)]);
   const now = Date.now();
   return all
     .filter((a) => a.studentIds.includes(studentId) && new Date(a.releaseAt).getTime() <= now)
@@ -177,19 +188,19 @@ export interface ProgressSummary {
   total: number;
   pending: number;
   overdue: number;
-  bySkill: { skill: Skill; percent: number; answered: number }[];
+  bySkill: { skill: Skill; label: string; percent: number; answered: number }[];
   history: { date: string; title: string; percent: number }[];
 }
 
 export function summarize(rows: StudentAssignmentRow[]): ProgressSummary {
   const graded = rows.filter((r) => r.percent !== null);
-  const skill = new Map<Skill, { s: number; m: number; n: number }>();
+  const skill = new Map<Skill, { label: string; s: number; m: number; n: number }>();
   for (const r of graded) {
     const sub = r.best!;
     for (const q of r.assignment.questions) {
       const a = sub.answers[q.id];
       if (!a || a.score === null) continue;
-      const cur = skill.get(q.skill) ?? { s: 0, m: 0, n: 0 };
+      const cur = skill.get(q.skill) ?? { label: q.skillLabel ?? q.skill, s: 0, m: 0, n: 0 };
       cur.s += a.score;
       cur.m += a.maxScore;
       cur.n += 1;
@@ -202,7 +213,7 @@ export function summarize(rows: StudentAssignmentRow[]): ProgressSummary {
     total: rows.length,
     pending: rows.filter((r) => r.status === "not_started" || r.status === "in_progress").length,
     overdue: rows.filter((r) => r.status === "overdue").length,
-    bySkill: [...skill.entries()].map(([k, v]) => ({ skill: k, percent: percent(v.s, v.m), answered: v.n })),
+    bySkill: [...skill.entries()].map(([k, v]) => ({ skill: k, label: v.label, percent: percent(v.s, v.m), answered: v.n })),
     history: graded
       .map((r) => ({ date: r.best!.submittedAt, title: r.assignment.title, percent: r.percent! }))
       .sort((a, b) => a.date.localeCompare(b.date)),

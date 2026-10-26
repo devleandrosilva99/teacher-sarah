@@ -1,7 +1,8 @@
 import Link from "next/link";
 import { Plus } from "lucide-react";
 import { requireTeacher } from "@/server/auth/session";
-import { assignments, students, submissions } from "@/server/db/repo";
+import { assignments, students, subjects, submissions } from "@/server/db/repo";
+import { mainLevel } from "@/lib/subjects";
 import { rowFor, summarize } from "@/server/services/assignments";
 import { Avatar, Badge, ButtonLink, EmptyState, Notice, PageHeader, scoreVariant } from "@/components/ui";
 import { cx } from "@/components/ui";
@@ -11,10 +12,11 @@ export const metadata = { title: "Alunos" };
 export default async function AlunosPage({ searchParams }: { searchParams: Promise<{ q?: string; arquivados?: string; excluido?: string }> }) {
   const { teacher } = await requireTeacher();
   const sp = await searchParams;
-  const [all, asgs, subs] = await Promise.all([
+  const [all, asgs, subs, subjectList] = await Promise.all([
     students.all(teacher.id),
     assignments.all(teacher.id),
     submissions.all(teacher.id),
+    subjects.all(teacher.id),
   ]);
   const showArchived = sp.arquivados === "1";
   const q = (sp.q ?? "").toLowerCase();
@@ -71,7 +73,7 @@ export default async function AlunosPage({ searchParams }: { searchParams: Promi
                   <div className="truncate text-sm font-medium">{s.name}</div>
                   <div className="truncate text-xs text-ink-3">{s.email}</div>
                 </div>
-                <Badge variant="info">{s.level}</Badge>
+                {mainLevel(s, subjectList) && <Badge variant="info">{mainLevel(s, subjectList)!.code}</Badge>}
                 <div className="hidden w-28 text-right sm:block">
                   {sum.average !== null ? <Badge variant={scoreVariant(sum.average)}>Média {sum.average}%</Badge> : <span className="text-xs text-ink-3">Sem notas</span>}
                 </div>

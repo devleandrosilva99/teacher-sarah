@@ -4,11 +4,12 @@ import { useActionState } from "react";
 import { saveStudent } from "@/server/actions/students";
 import { initialState } from "@/server/actions/state";
 import { Button, Card, Field, Input, Notice, Select, Textarea } from "@/components/ui";
-import { LEVELS, LEVEL_LABELS, type Student } from "@/lib/types";
+import type { Student, Subject } from "@/lib/types";
 
-export default function StudentForm({ student }: { student?: Student }) {
+export default function StudentForm({ student, subjects }: { student?: Student; subjects: Subject[] }) {
   const [state, action, pending] = useActionState(saveStudent, initialState);
   const v = (k: keyof Student) => state.fields?.[k] ?? (student ? String(student[k] ?? "") : "");
+  const lv = (subjectId: string) => state.fields?.[`level:${subjectId}`] ?? student?.levels[subjectId] ?? "";
 
   // key: remonta o formulário após um erro, para os <select> voltarem ao valor enviado.
   return (
@@ -23,15 +24,19 @@ export default function StudentForm({ student }: { student?: Student }) {
           <Field label="E-mail *" hint="Usado para o aluno entrar">
             <Input name="email" type="email" required maxLength={254} defaultValue={v("email")} />
           </Field>
-          <Field label="Nível *">
-            <Select name="level" defaultValue={v("level") || "A1"}>
-              {LEVELS.map((l) => (
-                <option key={l} value={l}>
-                  {l} · {LEVEL_LABELS[l]}
-                </option>
-              ))}
-            </Select>
-          </Field>
+          {/* Um nível por disciplina; a primeira é obrigatória, as outras são opcionais. */}
+          {subjects.map((subject, i) => (
+            <Field key={subject.id} label={subjects.length > 1 ? `Nível em ${subject.name}${i === 0 ? " *" : ""}` : "Nível *"}>
+              <Select name={`level:${subject.id}`} defaultValue={lv(subject.id) || (i === 0 ? subject.levels[0]?.code : "")}>
+                {i > 0 && <option value="">Não estuda esta disciplina</option>}
+                {subject.levels.map((l) => (
+                  <option key={l.code} value={l.code}>
+                    {l.code} · {l.label}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+          ))}
           <Field label="Telefone">
             <Input name="phone" maxLength={30} defaultValue={v("phone")} placeholder="(11) 90000-0000" />
           </Field>

@@ -1,16 +1,15 @@
 import { Video } from "lucide-react";
 import { requireStudent } from "@/server/auth/session";
-import { classes, lessons } from "@/server/db/repo";
+import { lessons } from "@/server/db/repo";
 import { Badge, ButtonLink, Card, EmptyState, PageHeader } from "@/components/ui";
 import { formatWeekdayTime } from "@/lib/format";
 
 export const metadata = { title: "Aulas" };
 
 export default async function AgendaAlunoPage() {
-  const { student, teacher } = await requireStudent();
-  const [ls, cls] = await Promise.all([lessons.all(teacher.id), classes.all(teacher.id)]);
-  const myClassIds = new Set(cls.filter((c) => c.studentIds.includes(student.id)).map((c) => c.id));
-  const mine = ls.filter((l) => l.studentId === student.id || myClassIds.has(l.classId));
+  const { student, scope } = await requireStudent();
+  // A RLS já limita às aulas do aluno e das turmas dele.
+  const mine = await lessons.all(scope);
   const now = Date.now();
   const upcoming = mine
     .filter((l) => l.status !== "done" && new Date(l.startsAt).getTime() + l.durationMin * 60_000 > now)

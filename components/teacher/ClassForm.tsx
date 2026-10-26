@@ -4,16 +4,21 @@ import { useActionState, useState } from "react";
 import { saveClass } from "@/server/actions/students";
 import { initialState } from "@/server/actions/state";
 import { Avatar, Button, Card, Field, Input, Notice, Select, Textarea } from "@/components/ui";
-import { LEVELS, type ClassGroup } from "@/lib/types";
+import type { ClassGroup, Subject } from "@/lib/types";
+import SubjectPicker from "./SubjectPicker";
 
 export default function ClassForm({
   group,
   students,
+  subjects,
 }: {
   group?: ClassGroup;
   students: { id: string; name: string; level: string; avatarColor: number }[];
+  subjects: Subject[];
 }) {
   const [state, action, pending] = useActionState(saveClass, initialState);
+  const [subjectId, setSubjectId] = useState(group?.subjectId ?? subjects[0]?.id ?? "");
+  const subject = subjects.find((x) => x.id === subjectId);
   const [filter, setFilter] = useState("");
   const selected = new Set(group?.studentIds ?? []);
   return (
@@ -21,13 +26,19 @@ export default function ClassForm({
       {group && <input type="hidden" name="id" value={group.id} />}
       <Card>
         <div className="grid gap-3 sm:grid-cols-3">
+          {subjects.length > 1 && (
+            <div className="sm:col-span-3">
+              <SubjectPicker subjects={subjects} value={subjectId} onChange={setSubjectId} />
+            </div>
+          )}
+          {subjects.length <= 1 && <SubjectPicker subjects={subjects} value={subjectId} />}
           <Field label="Nome da turma *" className="sm:col-span-2">
             <Input name="name" required maxLength={80} defaultValue={group?.name} placeholder="Ex.: Conversação B1 · terças" />
           </Field>
           <Field label="Nível">
-            <Select name="level" defaultValue={group?.level ?? ""}>
+            <Select key={subjectId} name="level" defaultValue={group?.subjectId === subjectId ? group?.level ?? "" : ""}>
               <option value="">Misto</option>
-              {LEVELS.map((l) => <option key={l} value={l}>{l}</option>)}
+              {(subject?.levels ?? []).map((l) => <option key={l.code} value={l.code}>{l.code}</option>)}
             </Select>
           </Field>
           <Field label="Descrição" className="sm:col-span-3">

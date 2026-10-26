@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { Video } from "lucide-react";
 import { requireStudent } from "@/server/auth/session";
-import { classes, lessons } from "@/server/db/repo";
+import { lessons } from "@/server/db/repo";
 import { studentRows, summarize } from "@/server/services/assignments";
 import AssignmentCard from "@/components/student/AssignmentCard";
 import { ButtonLink, Card, EmptyState, Stat } from "@/components/ui";
@@ -10,13 +10,13 @@ import { formatWeekdayTime } from "@/lib/format";
 export const metadata = { title: "Início" };
 
 export default async function AlunoHome() {
-  const { student, teacher } = await requireStudent();
-  const [rows, ls, cls] = await Promise.all([studentRows(teacher.id, student.id), lessons.all(teacher.id), classes.all(teacher.id)]);
+  const { student, scope } = await requireStudent();
+  // No escopo do aluno, a RLS só devolve as aulas dele e das turmas dele.
+  const [rows, ls] = await Promise.all([studentRows(scope, student.id), lessons.all(scope)]);
   const sum = summarize(rows);
   const todo = rows.filter((r) => r.status === "not_started" || r.status === "in_progress" || (r.status === "overdue" && r.attemptsLeft > 0));
-  const myClassIds = new Set(cls.filter((c) => c.studentIds.includes(student.id)).map((c) => c.id));
   const next = ls
-    .filter((l) => l.status === "scheduled" && (l.studentId === student.id || myClassIds.has(l.classId)))
+    .filter((l) => l.status === "scheduled")
     .filter((l) => new Date(l.startsAt).getTime() + l.durationMin * 60_000 > Date.now())
     .sort((a, b) => a.startsAt.localeCompare(b.startsAt))[0];
 

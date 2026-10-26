@@ -7,11 +7,11 @@ import ActivityPlayer from "@/components/student/ActivityPlayer";
 export const metadata = { title: "Fazendo atividade" };
 
 export default async function FazerPage({ params }: { params: Promise<{ id: string }> }) {
-  const { student, teacher } = await requireStudent();
+  const { student, scope } = await requireStudent();
   const { id } = await params;
-  const a = await assignments.get(teacher.id, id);
+  const a = await assignments.get(scope, id);
   if (!a || !a.studentIds.includes(student.id)) notFound();
-  const row = rowFor(a, student.id, await submissions.all(teacher.id));
+  const row = rowFor(a, student.id, await submissions.all(scope));
   if (!row.current) redirect(`/aluno/atividades/${id}`);
   const sub = row.current;
 

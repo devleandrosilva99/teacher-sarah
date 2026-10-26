@@ -1,5 +1,6 @@
 import "server-only";
-// Dados de demonstração, criados na primeira vez que o banco é acessado.
+// Dados de demonstração, gravados numa única transação (escopo system) na
+// primeira vez que o banco é acessado, ou com `npm run db:seed`.
 // Contas de demonstração (todas com a senha DEMO_PASSWORD):
 //   professora: sarah@teachersarah.com     professor: john@demo.com
 //   alunos:     lucas.mendes@email.com, julia.santos@email.com,
@@ -7,13 +8,17 @@ import "server-only";
 //               pedro.vasconcelos@email.com, ana.lima@email.com (aluna do John)
 //   admin:      ADMIN_EMAIL / ADMIN_PASSWORD (variáveis de ambiente); em
 //               desenvolvimento local, sem as variáveis: admin@demo.local
+// A professora Sarah tem duas disciplinas (Inglês e Inglês para negócios),
+// para testar a interface com várias disciplinas.
 // Defina SEED_DEMO=false para começar sem dados de demonstração.
-import { activities, classes, lessons, passages, questions, students, submissions, teachers, users } from "./repo";
+import type { Db } from "./client";
+import { makeRepo, type Repo } from "./repo";
 import { hashPassword } from "@/server/auth/password";
 import { buildQuestion, type Contents, type Sources } from "@/lib/question-types";
 import { newId } from "@/lib/format";
 import { createAssignment, gradeSubmission } from "@/server/services/assignments";
-import type { Activity, Level, Question, QuestionType, Skill, Student, Teacher } from "@/lib/types";
+import { createTeacherAccount } from "@/server/services/accounts";
+import type { Activity, Assignment, Question, QuestionType, Student, Subject, Teacher } from "@/lib/types";
 
 export const DEMO_PASSWORD = "demo1234";
 
@@ -24,35 +29,42 @@ const iso = (offsetDays: number, hour = 19) => {
   return d.toISOString();
 };
 
-export async function seed(): Promise<void> {
+export async function seed(db: Db): Promise<void> {
+  const r = makeRepo(db);
   const adminEmail = process.env.ADMIN_EMAIL ?? (process.env.VERCEL ? "" : "admin@demo.local");
   const adminPassword = process.env.ADMIN_PASSWORD ?? (process.env.VERCEL ? "" : DEMO_PASSWORD);
-  if (adminEmail && adminPassword) {
-    await users.create({
+  if (adminEmail && adminPassword && !(await r.users.byEmail(adminEmail))) {
+    await r.users.create({
       id: newId(),
       email: adminEmail.toLowerCase(),
       passwordHash: await hashPassword(adminPassword),
       role: "admin",
       name: "Administrador",
+      blocked: false,
       createdAt: iso(-60),
     });
   }
   if (process.env.SEED_DEMO === "false") return;
+  if (await r.users.byEmail("sarah@teachersarah.com")) return; // já semeado
+  await seedDemo(r);
+}
 
+async function seedDemo(r: Repo): Promise<void> {
   const pw = await hashPassword(DEMO_PASSWORD);
 
   async function makeTeacher(name: string, email: string, slug: string, color: string, bio: string) {
-    const userId = newId();
-    const teacher: Teacher = { id: newId(), userId, name, slug, bio, color, createdAt: iso(-60) };
-    await users.create({ id: userId, email, passwordHash: pw, role: "teacher", name, teacherId: teacher.id, createdAt: iso(-60) });
-    await teachers.save(teacher);
-    return teacher;
+    const { teacher } = await createTeacherAccount(r, { name, email, passwordHash: pw, slug, bio, color });
+    const english = (await r.subjects.all()).find((s) => s.teacherId === teacher.id)!;
+    return { teacher, english };
   }
 
-  async function makeStudent(t: Teacher, name: string, email: string, level: Level, extra: Partial<Student> = {}) {
-    const s: Student = {
+  async function makeStudent(t: Teacher, name: string, email: string, levels: Record<string, string>, extra: Partial<Student> = {}) {
+    const userId = newId();
+    await r.users.create({ id: userId, email, passwordHash: pw, role: "student", name, blocked: false, createdAt: iso(-50) });
+    return r.students.put({
       id: newId(),
       teacherId: t.id,
+      userId,
       name,
       email,
       phone: "",
@@ -66,33 +78,30 @@ export async function seed(): Promise<void> {
       neighborhood: "",
       city: "",
       state: "",
-      level,
+      levels,
       goal: "",
       notes: "",
       status: "active",
       avatarColor: Math.floor(Math.random() * 5),
       createdAt: iso(-50),
       ...extra,
-    };
-    const userId = newId();
-    s.userId = userId;
-    await users.create({ id: userId, email, passwordHash: pw, role: "student", name, teacherId: t.id, studentId: s.id, createdAt: iso(-50) });
-    await students.put(s);
-    return s;
+    });
   }
 
   async function q<T extends QuestionType>(
     t: Teacher,
+    subject: Subject,
     type: T,
     prompt: string,
     source: Sources[T],
-    opts: { skill: Skill; level: Level; tags?: string[]; passageId?: string; instructions?: string; explanation?: string; points?: number }
+    opts: { skill: string; level: string; tags?: string[]; passageId?: string; instructions?: string; explanation?: string; points?: number }
   ): Promise<Question> {
     const built = buildQuestion(type, source);
     if (!built.ok) throw new Error(`seed: ${built.error}`);
-    const question: Question = {
+    return r.questions.put({
       id: newId(),
       teacherId: t.id,
+      subjectId: subject.id,
       type,
       prompt,
       instructions: opts.instructions ?? "",
@@ -109,53 +118,55 @@ export async function seed(): Promise<void> {
       answerKey: built.answerKey,
       createdAt: iso(-40),
       updatedAt: iso(-40),
-    };
-    return questions.put(question);
+    });
   }
 
   // ---------- Teacher Sarah ----------
-  const sarah = await makeTeacher(
+  const { teacher: sarah, english } = await makeTeacher(
     "Sarah Ramos",
     "sarah@teachersarah.com",
     "teacher-sarah",
     "#378ADD",
     "Aulas de inglês online para adolescentes e adultos, do básico ao avançado."
   );
-  const lucas = await makeStudent(sarah, "Lucas Mendes", "lucas.mendes@email.com", "B1", {
+  const business = await r.subjects.createFromTemplate(sarah.id, "english", "Inglês para negócios");
+  const E = english.id;
+  const B = business.id;
+
+  const lucas = await makeStudent(sarah, "Lucas Mendes", "lucas.mendes@email.com", { [E]: "B1", [B]: "A2" }, {
     phone: "(11) 98765-4321",
     city: "São Paulo",
     state: "SP",
     goal: "Conversação para reuniões de trabalho",
     notes: "Bom vocabulário; revisar past simple irregular.",
   });
-  const julia = await makeStudent(sarah, "Júlia Santos", "julia.santos@email.com", "A2", {
+  const julia = await makeStudent(sarah, "Júlia Santos", "julia.santos@email.com", { [E]: "A2" }, {
     goal: "Intercâmbio no Canadá em 2027",
     city: "Campinas",
     state: "SP",
   });
-  const rafael = await makeStudent(sarah, "Rafael Almeida", "rafael.almeida@email.com", "B2", {
-    goal: "Certificação IELTS",
-  });
-  await makeStudent(sarah, "Marina Costa", "marina.costa@email.com", "C1", { goal: "Manter a fluência" });
-  const pedro = await makeStudent(sarah, "Pedro Vasconcelos", "pedro.vasconcelos@email.com", "A1", {
+  const rafael = await makeStudent(sarah, "Rafael Almeida", "rafael.almeida@email.com", { [E]: "B2" }, { goal: "Certificação IELTS" });
+  await makeStudent(sarah, "Marina Costa", "marina.costa@email.com", { [E]: "C1", [B]: "B2" }, { goal: "Manter a fluência" });
+  const pedro = await makeStudent(sarah, "Pedro Vasconcelos", "pedro.vasconcelos@email.com", { [E]: "A1" }, {
     birthDate: "2012-04-10",
     guardianName: "Cláudia Vasconcelos",
   });
 
-  const turma = {
+  const turma = await r.classes.put({
     id: newId(),
     teacherId: sarah.id,
+    subjectId: E,
     name: "Turma B1 · terças",
-    level: "B1" as Level,
+    level: "B1",
     description: "Grupo de conversação, terças às 19h.",
     studentIds: [lucas.id, rafael.id, julia.id],
     createdAt: iso(-45),
-  };
-  await classes.put(turma);
+  });
 
-  const london = await passages.put({
+  const london = await r.passages.put({
     id: newId(),
     teacherId: sarah.id,
+    subjectId: E,
     kind: "reading",
     title: "A Day in London",
     text:
@@ -171,28 +182,28 @@ export async function seed(): Promise<void> {
     updatedAt: iso(-40),
   });
 
-  const qFill = await q(sarah, "fill_text", "Complete com o passado simples dos verbos.", {
+  const qFill = await q(sarah, english, "fill_text", "Complete com o passado simples dos verbos.", {
     template: "Yesterday I [[went]] to the market and [[bought|got]] some apples. Then I [[made]] a pie.",
     caseSensitive: false,
   }, { skill: "grammar", level: "A2", tags: ["past simple"], explanation: "go → went, buy → bought, make → made." });
 
-  const qSingle = await q(sarah, "single_choice", "Choose the correct option: \"She ___ to work by bus every day.\"", {
+  const qSingle = await q(sarah, english, "single_choice", "Choose the correct option: \"She ___ to work by bus every day.\"", {
     options: ["go", "goes", "going", "gone"],
     correct: 1,
   }, { skill: "grammar", level: "A1", tags: ["present simple"], explanation: "Terceira pessoa do singular recebe -s." });
 
-  const qMulti = await q(sarah, "multiple_choice", "Which of these words are irregular verbs?", {
+  const qMulti = await q(sarah, english, "multiple_choice", "Which of these words are irregular verbs?", {
     options: ["write", "play", "eat", "watch", "drink"],
     correct: [0, 2, 4],
     partial: true,
   }, { skill: "vocabulary", level: "A2", tags: ["past simple"] });
 
-  const qOrder = await q(sarah, "ordering", "Put the words in order to make a question.", {
+  const qOrder = await q(sarah, english, "ordering", "Put the words in order to make a question.", {
     items: ["Where", "did", "you", "go", "last", "weekend?"],
     joiner: "space",
   }, { skill: "grammar", level: "A2", tags: ["past simple", "questions"] });
 
-  const qMatch = await q(sarah, "matching", "Match the words to their meanings.", {
+  const qMatch = await q(sarah, english, "matching", "Match the words to their meanings.", {
     pairs: [
       { left: "borrow", right: "pegar emprestado" },
       { left: "lend", right: "emprestar" },
@@ -201,17 +212,17 @@ export async function seed(): Promise<void> {
     distractors: ["comprar"],
   }, { skill: "vocabulary", level: "B1", tags: ["false friends"] });
 
-  const qChoiceFill = await q(sarah, "fill_choice", "Complete with the right preposition.", {
+  const qChoiceFill = await q(sarah, english, "fill_choice", "Complete with the right preposition.", {
     template: "I was born [[in]] 1998. My birthday is [[on]] Monday. The class starts [[at]] 7 p.m.",
     distractors: ["by", "for"],
   }, { skill: "grammar", level: "A2", tags: ["prepositions"] });
 
-  const qR1 = await q(sarah, "single_choice", "How did Emma get to Westminster?", {
+  const qR1 = await q(sarah, english, "single_choice", "How did Emma get to Westminster?", {
     options: ["By bus", "By taxi", "By Tube", "On foot"],
     correct: 2,
   }, { skill: "reading", level: "A2", passageId: london.id });
 
-  const qR2 = await q(sarah, "true_false", "Mark true (V) or false (F) according to the text.", {
+  const qR2 = await q(sarah, english, "true_false", "Mark true (V) or false (F) according to the text.", {
     statements: [
       { text: "Emma went on the London Eye.", answer: false },
       { text: "The National Gallery was free.", answer: true },
@@ -219,24 +230,35 @@ export async function seed(): Promise<void> {
     ],
   }, { skill: "reading", level: "A2", passageId: london.id });
 
-  const qR3 = await q(sarah, "open", "Would you like to visit London? Why? Write 3 to 5 sentences.", {
+  const qR3 = await q(sarah, english, "open", "Would you like to visit London? Why? Write 3 to 5 sentences.", {
     minWords: 20,
     maxWords: 120,
     rubric: "Uso do passado/futuro, coerência e vocabulário do texto.",
     modelAnswer: "Yes, I would like to visit London because...",
   }, { skill: "writing", level: "A2", passageId: london.id, points: 2 });
 
-  await q(sarah, "open", "Describe your last holiday in 50–80 words.", {
+  await q(sarah, english, "open", "Describe your last holiday in 50–80 words.", {
     minWords: 50,
     maxWords: 80,
     rubric: "Past simple, conectivos (first, then, after that).",
     modelAnswer: "",
   }, { skill: "writing", level: "B1", tags: ["past simple"], points: 3 });
 
+  // Segunda disciplina (Inglês para negócios): duas questões.
+  await q(sarah, business, "single_choice", "Choose the best reply: \"Could we move the meeting to Friday?\"", {
+    options: ["Sure, Friday works for me.", "Yes, I moved.", "Friday is a meeting.", "No, I'm Friday."],
+    correct: 0,
+  }, { skill: "vocabulary", level: "A2", tags: ["meetings"] });
+  await q(sarah, business, "fill_text", "Complete the email.", {
+    template: "Dear Mr. Lee, I am [[writing]] to confirm our meeting [[on]] Monday. Best [[regards]], Sarah",
+    caseSensitive: false,
+  }, { skill: "writing", level: "B1", tags: ["emails"] });
+
   const now = iso(-30);
   const act1: Activity = {
     id: newId(),
     teacherId: sarah.id,
+    subjectId: E,
     title: "Past simple: revisão",
     instructions: "Revise o passado simples antes da aula de terça.",
     items: [qFill, qSingle, qMulti, qOrder, qMatch, qChoiceFill].map((x) => ({ questionId: x.id, points: x.points })),
@@ -251,6 +273,7 @@ export async function seed(): Promise<void> {
   const act2: Activity = {
     id: newId(),
     teacherId: sarah.id,
+    subjectId: E,
     title: "Reading: A Day in London",
     instructions: "Leia o texto e responda às questões.",
     items: [qR1, qR2, qR3].map((x) => ({ questionId: x.id, points: x.points })),
@@ -262,16 +285,16 @@ export async function seed(): Promise<void> {
     createdAt: now,
     updatedAt: now,
   };
-  await activities.put(act1);
-  await activities.put(act2);
+  await r.activities.put(act1);
+  await r.activities.put(act2);
 
-  const as1 = await createAssignment(act1, {
+  const as1 = await createAssignment(r, act1, {
     studentIds: [lucas.id, julia.id, rafael.id, pedro.id],
     classId: "",
     releaseAt: iso(-20),
     dueAt: iso(-5),
   });
-  const as2 = await createAssignment(act2, {
+  const as2 = await createAssignment(r, act2, {
     studentIds: turma.studentIds,
     classId: turma.id,
     releaseAt: iso(-3),
@@ -284,24 +307,25 @@ export async function seed(): Promise<void> {
   const ordered = (qq: Question) => (qq.answerKey as { order: string[] }).order;
   const matchPairs = (qq: Question) => (qq.answerKey as { pairs: Record<string, string> }).pairs;
 
-  async function submit(asg: typeof as1, st: Student, responses: Record<string, unknown>, daysAgo: number) {
-    const sub = gradeSubmission(asg, {
-      id: newId(),
-      teacherId: sarah.id,
-      assignmentId: asg.id,
-      studentId: st.id,
-      attempt: 1,
-      startedAt: iso(-daysAgo, 18),
-      submittedAt: iso(-daysAgo, 19),
-      late: false,
-      status: "submitted",
-      responses,
-      answers: {},
-      score: 0,
-      maxScore: 0,
-      generalFeedback: "",
-    });
-    await submissions.put(sub);
+  async function submit(asg: Assignment, st: Student, responses: Record<string, unknown>, daysAgo: number) {
+    await r.submissions.put(
+      gradeSubmission(asg, {
+        id: newId(),
+        teacherId: sarah.id,
+        assignmentId: asg.id,
+        studentId: st.id,
+        attempt: 1,
+        startedAt: iso(-daysAgo, 18),
+        submittedAt: iso(-daysAgo, 19),
+        late: false,
+        status: "submitted",
+        responses,
+        answers: {},
+        score: 0,
+        maxScore: 0,
+        generalFeedback: "",
+      })
+    );
   }
 
   const multiIds = content<"multiple_choice">(qMulti).options;
@@ -332,7 +356,7 @@ export async function seed(): Promise<void> {
 
   // Aulas
   const lesson = (studentId: string, classId: string, offsetDays: number, topic: string, extra = {}) =>
-    lessons.put({
+    r.lessons.put({
       id: newId(),
       teacherId: sarah.id,
       studentId,
@@ -361,8 +385,8 @@ export async function seed(): Promise<void> {
 
   // ---------- Teacher John (para mostrar o isolamento) ----------
   const john = await makeTeacher("John Miller", "john@demo.com", "teacher-john", "#1D9E75", "Business English.");
-  await makeStudent(john, "Ana Lima", "ana.lima@email.com", "B2", { goal: "Inglês para negócios" });
-  await q(john, "single_choice", "Choose the best word: \"Let's ___ a meeting for Monday.\"", {
+  await makeStudent(john.teacher, "Ana Lima", "ana.lima@email.com", { [john.english.id]: "B2" }, { goal: "Inglês para negócios" });
+  await q(john.teacher, john.english, "single_choice", "Choose the best word: \"Let's ___ a meeting for Monday.\"", {
     options: ["schedule", "do", "make up", "put"],
     correct: 0,
   }, { skill: "vocabulary", level: "B2", tags: ["business"] });

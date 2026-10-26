@@ -3,7 +3,7 @@
 import { z } from "zod";
 import { revalidatePath } from "next/cache";
 import { getCurrentUser, requireStudent, requireTeacher } from "@/server/auth/session";
-import { notifications, students, teachers, users } from "@/server/db/repo";
+import { notifications, withScope } from "@/server/db/repo";
 import { notify } from "@/server/services/notify";
 import { nowIso, slugify } from "@/lib/format";
 import type { FormState } from "./state";
@@ -23,34 +23,37 @@ export async function saveTeacherSettings(_prev: FormState, formData: FormData):
   const slug = slugify(d.slug);
   if (slug.length < 3) return { error: "Use letras e números no endereço." };
   const reserved = ["admin", "professor", "aluno", "entrar", "cadastro", "api"];
-  const owner = await teachers.bySlug(slug);
-  if (reserved.includes(slug) || (owner && owner.id !== teacher.id)) return { error: "Este endereço já está em uso." };
-  await teachers.save({ ...teacher, name: d.name, slug, bio: d.bio, color: d.color }, teacher.slug);
-  if (user.name !== d.name) await users.put({ ...user, name: d.name });
-  revalidatePath("/professor", "layout");
-  return { ok: "Configurações salvas." };
+  return withScope(teacher.id, async (r) => {
+    const owner = await r.teachers.bySlug(slug);
+    if (reserved.includes(slug) || (owner && owner.id !== teacher.id)) return { error: "Este endereço já está em uso." };
+    await r.teachers.save({ ...teacher, name: d.name, slug, bio: d.bio, color: d.color });
+    if (user.name !== d.name) await r.users.put({ ...user, name: d.name });
+    revalidatePath("/professor", "layout");
+    return { ok: "Configurações salvas." };
+  });
 }
 
 export async function markAllRead(): Promise<void> {
   const user = await getCurrentUser();
   if (!user) return;
-  for (const n of await notifications.list(user.id)) {
-    if (!n.readAt) await notifications.put({ ...n, readAt: nowIso() });
-  }
+  await notifications.markAllRead(user.id);
   revalidatePath("/", "layout");
 }
 
 export async function updateStudentContact(_prev: FormState, formData: FormData): Promise<FormState> {
-  const { student } = await requireStudent();
+  const { student, scope } = await requireStudent();
   const phone = String(formData.get("phone") ?? "").trim().slice(0, 30);
-  await students.put({ ...student, phone });
+  // Escopo do aluno: a RLS só deixa atualizar o próprio cadastro.
+  await withScope(scope, (r) => r.students.updateSelf(student.id, { phone }));
   return { ok: "Dados atualizados." };
 }
 
 export async function requestDeletion(): Promise<void> {
-  const { student, teacher } = await requireStudent();
+  const { student, teacher, scope } = await requireStudent();
   if (student.deletionRequestedAt) return;
-  await students.put({ ...student, deletionRequestedAt: nowIso() });
-  await notify(teacher.userId, `${student.name} pediu a exclusão dos próprios dados.`, `/professor/alunos/${student.id}`);
+  await withScope(scope, async (r) => {
+    await r.students.updateSelf(student.id, { deletionRequestedAt: nowIso() });
+    await notify(r, teacher.userId, `${student.name} pediu a exclusão dos próprios dados.`, `/professor/alunos/${student.id}`);
+  });
   revalidatePath("/aluno/perfil");
 }

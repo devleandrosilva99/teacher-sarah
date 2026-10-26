@@ -1,25 +1,25 @@
 import Link from "next/link";
 import { Bell, LogOut } from "lucide-react";
 import BottomNav from "@/components/nav/BottomNav";
-import StorageBanner from "@/components/nav/StorageBanner";
 import { Avatar } from "@/components/ui";
 import { requireStudent } from "@/server/auth/session";
 import { logout } from "@/server/actions/auth";
 import { unreadCount } from "@/server/services/notify";
-import { LEVEL_LABELS } from "@/lib/types";
+import { subjects } from "@/server/db/repo";
+import { mainLevel } from "@/lib/subjects";
 
 export default async function AlunoLayout({ children }: { children: React.ReactNode }) {
-  const { user, student, teacher } = await requireStudent();
-  const unread = await unreadCount(user.id);
+  const { user, student, teacher, scope } = await requireStudent();
+  const [unread, subjectList] = await Promise.all([unreadCount(user.id), subjects.all(scope)]);
+  const level = mainLevel(student, subjectList);
   return (
     <div style={{ ["--brand" as string]: teacher.color } as React.CSSProperties} className="min-h-screen">
-      <StorageBanner />
       <header className="mx-auto flex max-w-5xl items-center gap-3 px-4 pb-2 pt-4">
         <Avatar name={student.name} color={student.avatarColor} size={40} />
         <div className="min-w-0 flex-1">
           <div className="truncate font-medium">Olá, {student.name.split(" ")[0]}!</div>
           <div className="truncate text-xs text-ink-2">
-            {student.level} · {LEVEL_LABELS[student.level]} · com {teacher.name}
+            {level ? `${level.code} · ${level.label} · ` : ""}com {teacher.name}
           </div>
         </div>
         <Link href="/aluno/notificacoes" className="relative rounded-lg p-2 text-ink-2 hover:bg-surface-raised" aria-label="Notificações">

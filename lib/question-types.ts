@@ -28,6 +28,31 @@ export const TYPE_SHORT: Record<QuestionType, string> = {
   open: "Aberta",
 };
 
+/**
+ * Em quais disciplinas (chave do modelo, ver lib/subjects.ts) cada tipo pode
+ * ser usado. "all" = qualquer disciplina. Tipos específicos de uma disciplina
+ * (ex.: fórmulas em matemática) declaram a lista de modelos aqui.
+ */
+export const TYPE_SUBJECTS: Record<QuestionType, "all" | string[]> = {
+  single_choice: "all",
+  multiple_choice: "all",
+  true_false: "all",
+  fill_text: "all",
+  fill_choice: "all",
+  matching: "all",
+  ordering: "all",
+  open: "all",
+};
+
+export function typeAllowed(type: QuestionType, templateKey: string): boolean {
+  const allowed = TYPE_SUBJECTS[type];
+  return allowed === "all" || allowed.includes(templateKey);
+}
+
+export function typesForSubject(templateKey: string): QuestionType[] {
+  return (Object.keys(TYPE_SUBJECTS) as QuestionType[]).filter((t) => typeAllowed(t, templateKey));
+}
+
 export interface Option {
   id: string;
   text: string;

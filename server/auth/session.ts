@@ -3,7 +3,7 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import { cache } from "react";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
-import { meta, students, teachers, users } from "@/server/db/repo";
+import { meta, teachers, users, withScope } from "@/server/db/repo";
 import type { Role, Student, Teacher, User } from "@/lib/types";
 
 export const SESSION_COOKIE = "ts_session";
@@ -73,30 +73,44 @@ export function homeFor(role: Role): string {
   return role === "admin" ? "/admin" : role === "teacher" ? "/professor" : "/aluno";
 }
 
+/**
+ * Cadastro de aluno ligado a uma conta de login. A conta não sabe a que
+ * professor pertence, então esta busca usa o escopo system, de forma restrita:
+ * só por user_id.
+ */
+export const studentForUser = cache(async (userId: string): Promise<Student | null> => {
+  return withScope({ system: true }, (r) => r.students.byUserId(userId));
+});
+
 export const requireTeacher = cache(async (): Promise<{ user: User; teacher: Teacher }> => {
   const user = await getCurrentUser();
   if (!user) redirect("/entrar");
-  if (user.role !== "teacher" || !user.teacherId) redirect(homeFor(user.role));
-  const teacher = await teachers.get(user.teacherId);
+  if (user.role !== "teacher") redirect(homeFor(user.role));
+  const teacher = await teachers.byUserId(user.id);
   if (!teacher) redirect("/sair");
   return { user, teacher };
 });
 
-export const requireStudent = cache(
-  async (): Promise<{ user: User; student: Student; teacher: Teacher }> => {
-    const user = await getCurrentUser();
-    if (!user) redirect("/entrar");
-    if (user.role !== "student" || !user.teacherId || !user.studentId) redirect(homeFor(user.role));
-    const [student, teacher] = await Promise.all([
-      students.get(user.teacherId, user.studentId),
-      teachers.get(user.teacherId),
-    ]);
-    if (!student || !teacher || student.status !== "active") redirect("/sair?m=arquivado");
-    const teacherUser = await users.get(teacher.userId);
-    if (teacherUser?.blocked) redirect("/sair?m=bloqueado");
-    return { user, student, teacher };
-  }
-);
+export interface StudentContext {
+  user: User;
+  student: Student;
+  teacher: Teacher;
+  /** Escopo de RLS do aluno: use nas consultas das telas do aluno. */
+  scope: { teacherId: string; studentId: string };
+}
+
+export const requireStudent = cache(async (): Promise<StudentContext> => {
+  const user = await getCurrentUser();
+  if (!user) redirect("/entrar");
+  if (user.role !== "student") redirect(homeFor(user.role));
+  const student = await studentForUser(user.id);
+  if (!student || student.status !== "active") redirect("/sair?m=arquivado");
+  const teacher = await teachers.get(student.teacherId);
+  if (!teacher) redirect("/sair?m=arquivado");
+  const teacherUser = await users.get(teacher.userId);
+  if (teacherUser?.blocked) redirect("/sair?m=bloqueado");
+  return { user, student, teacher, scope: { teacherId: teacher.id, studentId: student.id } };
+});
 
 export const requireAdmin = cache(async (): Promise<User> => {
   const user = await getCurrentUser();

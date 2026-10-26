@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Archive, Download, Pencil, RotateCcw } from "lucide-react";
 import { requireTeacher } from "@/server/auth/session";
-import { assignments, classes, invitations, lessons, students, submissions } from "@/server/db/repo";
+import { assignments, classes, invitations, lessons, students, subjects, submissions } from "@/server/db/repo";
 import { rowFor, summarize } from "@/server/services/assignments";
 import { createInvite, deleteStudent, setStudentStatus } from "@/server/actions/students";
 import { baseUrl } from "@/server/url";
@@ -11,7 +11,6 @@ import CopyField from "@/components/CopyField";
 import ConfirmButton from "@/components/ConfirmButton";
 import { ScoreHistory, SkillBars } from "@/components/charts";
 import { ASSIGNMENT_STATUS } from "@/lib/labels";
-import { LEVEL_LABELS } from "@/lib/types";
 import { formatDate, formatDateTime, formatWeekdayTime } from "@/lib/format";
 
 export default async function AlunoDetalhePage({
@@ -27,14 +26,23 @@ export default async function AlunoDetalhePage({
   const student = await students.get(teacher.id, id);
   if (!student) notFound();
 
-  const [asgs, subs, allLessons, allClasses, invites, base] = await Promise.all([
+  const [asgs, subs, allLessons, allClasses, invite, base, subjectList] = await Promise.all([
     assignments.all(teacher.id),
     submissions.all(teacher.id),
     lessons.all(teacher.id),
     classes.all(teacher.id),
-    invitations.all(),
+    invitations.validForStudent(id),
     baseUrl(),
+    subjects.all(teacher.id),
   ]);
+  const levelText = subjectList
+    .filter((x) => student.levels[x.id])
+    .map((x) => {
+      const code = student.levels[x.id];
+      const label = x.levels.find((l) => l.code === code)?.label ?? "";
+      return subjectList.length > 1 ? `${x.name}: ${code}` : `${code} · ${label}`;
+    })
+    .join(" · ");
   const rows = asgs
     .filter((a) => a.studentIds.includes(id))
     .map((a) => rowFor(a, id, subs))
@@ -44,9 +52,6 @@ export default async function AlunoDetalhePage({
   const myLessons = allLessons
     .filter((l) => l.studentId === id || (l.classId && myClasses.some((c) => c.id === l.classId)))
     .sort((a, b) => b.startsAt.localeCompare(a.startsAt));
-  const invite = invites.find(
-    (i) => i.teacherId === teacher.id && i.studentId === id && !i.usedAt && new Date(i.expiresAt).getTime() > Date.now()
-  );
   const archived = student.status === "archived";
 
   return (
@@ -59,7 +64,7 @@ export default async function AlunoDetalhePage({
             {student.name}
           </span>
         }
-        subtitle={`${student.level} · ${LEVEL_LABELS[student.level]}${student.goal ? ` · ${student.goal}` : ""}`}
+        subtitle={`${levelText}${student.goal ? ` · ${student.goal}` : ""}`}
         actions={
           <>
             <ButtonLink href={`/professor/alunos/${id}/editar`} variant="secondary">

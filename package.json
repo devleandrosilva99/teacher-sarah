@@ -6,11 +6,18 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "test": "node --test tests/*.test.mts"
+    "test": "node --test tests/*.test.mts && npm run test:db",
+    "test:db": "node --conditions=react-server --import tsx --test --test-concurrency=1 tests/db/*.test.mts",
+    "db:migrate": "node scripts/migrate.mjs",
+    "db:reset": "node scripts/migrate.mjs --reset && npm run db:seed",
+    "db:seed": "node --conditions=react-server --import tsx scripts/seed.ts",
+    "db:backup": "node scripts/backup.mjs"
   },
   "dependencies": {
+    "@vercel/functions": "^3.10.3",
     "lucide-react": "^1.16.0",
     "next": "16.2.6",
+    "pg": "^8.23.1",
     "react": "19.2.4",
     "react-dom": "19.2.4",
     "server-only": "^0.0.1",
@@ -19,9 +26,11 @@
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
+    "@types/pg": "^8.23.1",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "tailwindcss": "^4",
+    "tsx": "^4.23.15",
     "typescript": "^5"
   }
 }

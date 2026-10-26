@@ -1,5 +1,6 @@
 import { requireTeacher } from "@/server/auth/session";
 import { pickerData } from "@/server/services/bank";
+import { subjects } from "@/server/db/repo";
 import ActivityBuilder from "@/components/teacher/ActivityBuilder";
 import { PageHeader } from "@/components/ui";
 
@@ -11,7 +12,7 @@ export default async function NovaAtividadePage() {
   return (
     <>
       <PageHeader title="Nova atividade" back={{ href: "/professor/atividades", label: "Atividades" }} />
-      <ActivityBuilder bank={bank} passages={passages} />
+      <ActivityBuilder bank={bank} passages={passages} subjects={await subjects.all(teacher.id)} />
     </>
   );
 }

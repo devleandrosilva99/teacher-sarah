@@ -1,17 +1,16 @@
-// Entidades do sistema. Todo conteúdo de professor carrega teacherId e é
-// guardado em chaves com escopo do professor (ver server/db/repo.ts).
+// Entidades do sistema (espelham as tabelas de db/migrations/0001_init.sql).
+// Datas são strings ISO; datas sem hora (birthDate) são "AAAA-MM-DD".
 
 export type Role = "admin" | "teacher" | "student";
 
+/** Conta de login (tabela users). Não guarda vínculo com professor ou aluno. */
 export interface User {
   id: string;
   email: string;
   passwordHash: string;
   role: Role;
   name: string;
-  teacherId?: string;
-  studentId?: string;
-  blocked?: boolean;
+  blocked: boolean;
   createdAt: string;
 }
 
@@ -25,32 +24,24 @@ export interface Teacher {
   createdAt: string;
 }
 
-export const LEVELS = ["A1", "A2", "B1", "B2", "C1", "C2"] as const;
-export type Level = (typeof LEVELS)[number];
+/** Código do nível (ex.: "B1") e chave da habilidade (ex.: "grammar") de uma disciplina. */
+export type Level = string;
+export type Skill = string;
 
-export const LEVEL_LABELS: Record<Level, string> = {
-  A1: "Beginner",
-  A2: "Elementary",
-  B1: "Intermediate",
-  B2: "Upper-Intermediate",
-  C1: "Advanced",
-  C2: "Proficient",
-};
-
-export const SKILLS = ["reading", "grammar", "vocabulary", "writing", "listening"] as const;
-export type Skill = (typeof SKILLS)[number];
-
-export const SKILL_LABELS: Record<Skill, string> = {
-  reading: "Leitura",
-  grammar: "Gramática",
-  vocabulary: "Vocabulário",
-  writing: "Escrita",
-  listening: "Compreensão auditiva",
-};
+export interface Subject {
+  id: string;
+  teacherId: string;
+  templateKey: string;
+  name: string;
+  position: number;
+  skills: { key: Skill; label: string }[];
+  levels: { code: Level; label: string }[];
+}
 
 export interface Student {
   id: string;
   teacherId: string;
+  /** Conta de login (users.id), quando o aluno já ativou o acesso. */
   userId?: string;
   name: string;
   email: string;
@@ -65,7 +56,8 @@ export interface Student {
   neighborhood: string;
   city: string;
   state: string;
-  level: Level;
+  /** Nível por disciplina: subjectId → código do nível. */
+  levels: Record<string, Level>;
   goal: string;
   notes: string;
   status: "active" | "archived";
@@ -86,6 +78,7 @@ export interface Invitation {
 export interface ClassGroup {
   id: string;
   teacherId: string;
+  subjectId: string;
   name: string;
   level: Level | "";
   description: string;
@@ -96,6 +89,7 @@ export interface ClassGroup {
 export interface Passage {
   id: string;
   teacherId: string;
+  subjectId: string;
   kind: "reading" | "listening";
   title: string;
   text: string;
@@ -123,6 +117,7 @@ export type QuestionStatus = "draft" | "published" | "archived";
 export interface Question {
   id: string;
   teacherId: string;
+  subjectId: string;
   type: QuestionType;
   prompt: string;
   instructions: string;
@@ -166,6 +161,7 @@ export interface ActivityItem {
 export interface Activity {
   id: string;
   teacherId: string;
+  subjectId: string;
   title: string;
   instructions: string;
   items: ActivityItem[];
@@ -181,12 +177,15 @@ export interface Activity {
 /** Cópia congelada de uma questão no momento da atribuição. */
 export interface SnapshotQuestion extends Question {
   activityPoints: number;
+  /** Rótulo da habilidade na época do envio (para relatórios). */
+  skillLabel: string;
 }
 
 export interface Assignment {
   id: string;
   teacherId: string;
   activityId: string;
+  subjectId: string;
   title: string;
   instructions: string;
   studentIds: string[];

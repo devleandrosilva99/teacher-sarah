@@ -5,13 +5,18 @@ import ContactForm from "@/components/student/ContactForm";
 import PasswordForm from "@/components/PasswordForm";
 import ConfirmButton from "@/components/ConfirmButton";
 import { ButtonLink, Card, Notice, PageHeader } from "@/components/ui";
-import { LEVEL_LABELS } from "@/lib/types";
+import { subjects } from "@/server/db/repo";
 import { formatDate } from "@/lib/format";
 
 export const metadata = { title: "Meu perfil" };
 
 export default async function PerfilPage() {
-  const { user, student, teacher } = await requireStudent();
+  const { user, student, teacher, scope } = await requireStudent();
+  const subjectList = await subjects.all(scope);
+  const levels = subjectList.filter((s) => student.levels[s.id]).map((s) => {
+    const code = student.levels[s.id];
+    return { name: s.name, text: `${code} · ${s.levels.find((l) => l.code === code)?.label ?? ""}` };
+  });
   return (
     <>
       <PageHeader title="Meu perfil" />
@@ -21,7 +26,12 @@ export default async function PerfilPage() {
           <dl className="mb-4 grid grid-cols-3 gap-y-1.5 text-sm">
             <dt className="text-ink-3">Nome</dt><dd className="col-span-2">{student.name}</dd>
             <dt className="text-ink-3">E-mail</dt><dd className="col-span-2 truncate">{user.email}</dd>
-            <dt className="text-ink-3">Nível</dt><dd className="col-span-2">{student.level} · {LEVEL_LABELS[student.level]}</dd>
+            {levels.map((l) => (
+              <div key={l.name} className="contents">
+                <dt className="text-ink-3">{levels.length > 1 ? `Nível · ${l.name}` : "Nível"}</dt>
+                <dd className="col-span-2">{l.text}</dd>
+              </div>
+            ))}
             <dt className="text-ink-3">Professor</dt><dd className="col-span-2">{teacher.name}</dd>
             {student.goal && (<><dt className="text-ink-3">Objetivo</dt><dd className="col-span-2">{student.goal}</dd></>)}
           </dl>

@@ -1,21 +1,25 @@
 import Link from "next/link";
 import { Plus } from "lucide-react";
 import { requireTeacher } from "@/server/auth/session";
-import { activities, assignments, classes, students } from "@/server/db/repo";
+import { activities, assignments, classes, students, subjects } from "@/server/db/repo";
+import SubjectFilter from "@/components/teacher/SubjectFilter";
 import { Badge, ButtonLink, EmptyState, Notice, PageHeader } from "@/components/ui";
 import { formatDate, plural } from "@/lib/format";
 
 export const metadata = { title: "Atividades" };
 
-export default async function AtividadesPage({ searchParams }: { searchParams: Promise<{ atribuir?: string; arquivadas?: string }> }) {
+export default async function AtividadesPage({ searchParams }: { searchParams: Promise<{ atribuir?: string; arquivadas?: string; disciplina?: string }> }) {
   const { teacher } = await requireTeacher();
   const sp = await searchParams;
-  const [acts, asgs, studs, cls] = await Promise.all([
+  const [allActs, asgs, studs, cls, subjectList] = await Promise.all([
     activities.all(teacher.id),
     assignments.all(teacher.id),
     students.all(teacher.id),
     classes.all(teacher.id),
+    subjects.all(teacher.id),
   ]);
+  const subject = subjectList.find((x) => x.id === sp.disciplina);
+  const acts = subject ? allActs.filter((a) => a.subjectId === subject.id) : allActs;
   const showArchived = sp.arquivadas === "1";
   const list = acts.filter((a) => a.archived === showArchived).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
 
@@ -37,6 +41,7 @@ export default async function AtividadesPage({ searchParams }: { searchParams: P
           <Notice>Escolha a atividade que vai para <b>{targetName}</b>.</Notice>
         </div>
       )}
+      <SubjectFilter subjects={subjectList} current={subject?.id ?? ""} basePath="/professor/atividades" params={{ atribuir: sp.atribuir, arquivadas: sp.arquivadas }} />
       {list.length === 0 ? (
         <EmptyState title={showArchived ? "Nenhuma atividade arquivada" : "Nenhuma atividade ainda"}>
           {!showArchived && "Crie questões no banco e depois monte sua primeira atividade."}

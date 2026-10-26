@@ -2,11 +2,12 @@
 
 import { z } from "zod";
 import { redirect } from "next/navigation";
-import { invitations, loginAttempts, students, teachers, users } from "@/server/db/repo";
+import { invitations, loginAttempts, teachers, users, withScope } from "@/server/db/repo";
 import { hashPassword, verifyPassword } from "@/server/auth/password";
-import { createSession, destroySession, getCurrentUser, homeFor } from "@/server/auth/session";
+import { createSession, destroySession, getCurrentUser, homeFor, studentForUser } from "@/server/auth/session";
 import { newId, nowIso, slugify } from "@/lib/format";
 import { notify } from "@/server/services/notify";
+import { createTeacherAccount } from "@/server/services/accounts";
 import type { FormState } from "./state";
 
 const MAX_FAILS = 5;
@@ -39,8 +40,8 @@ export async function login(_prev: FormState, formData: FormData): Promise<FormS
     return { error: "E-mail ou senha incorretos.", fields: { email: em } };
   }
   if (user.blocked) return { error: "Esta conta está bloqueada. Fale com o suporte.", fields: { email: em } };
-  if (user.role === "student" && user.teacherId && user.studentId) {
-    const st = await students.get(user.teacherId, user.studentId);
+  if (user.role === "student") {
+    const st = await studentForUser(user.id);
     if (!st || st.status !== "active") return { error: "Seu acesso foi encerrado pelo professor.", fields: { email: em } };
   }
 
@@ -67,18 +68,12 @@ export async function signupTeacher(_prev: FormState, formData: FormData): Promi
   let slug = slugify(parsed.data.name) || "professor";
   for (let i = 2; await teachers.bySlug(slug); i++) slug = `${slugify(parsed.data.name)}-${i}`;
 
-  const userId = newId();
+  // Conta, professor e disciplina inicial numa transação só.
   const teacherId = newId();
-  const user = await users.create({
-    id: userId,
-    email: parsed.data.email,
-    passwordHash: await hashPassword(parsed.data.password),
-    role: "teacher",
-    name: parsed.data.name,
-    teacherId,
-    createdAt: nowIso(),
-  });
-  await teachers.save({ id: teacherId, userId, name: parsed.data.name, slug, bio: "", color: "#378ADD", createdAt: nowIso() });
+  const passwordHash = await hashPassword(parsed.data.password);
+  const { user } = await withScope(teacherId, (r) =>
+    createTeacherAccount(r, { teacherId, name: parsed.data.name, email: parsed.data.email, passwordHash, slug })
+  );
   await createSession(user);
   redirect("/professor?bemvindo=1");
 }
@@ -99,34 +94,38 @@ export async function acceptInvite(_prev: FormState, formData: FormData): Promis
   if (pw.data !== formData.get("confirm")) return { error: "As senhas não conferem." };
   if (formData.get("terms") !== "on") return { error: "É preciso aceitar os termos de uso e a política de privacidade." };
 
-  const student = await students.get(inv.teacherId, inv.studentId);
-  if (!student || student.status !== "active") return { error: "Este convite não é mais válido." };
-  if (isMinor(student.birthDate) && formData.get("guardian") !== "on") {
-    return { error: "Como você é menor de 18 anos, seu responsável precisa autorizar o uso." };
-  }
-
-  let user = student.userId ? await users.get(student.userId) : null;
   const hash = await hashPassword(pw.data);
-  if (user) {
-    user = await users.put({ ...user, passwordHash: hash });
-  } else {
-    if (await users.byEmail(inv.email)) return { error: "Já existe uma conta com este e-mail. Fale com seu professor." };
-    user = await users.create({
-      id: newId(),
-      email: inv.email,
-      passwordHash: hash,
-      role: "student",
-      name: student.name,
-      teacherId: inv.teacherId,
-      studentId: student.id,
-      createdAt: nowIso(),
-    });
-    await students.put({ ...student, userId: user.id });
-  }
-  await invitations.put({ ...inv, usedAt: nowIso() });
-  const teacher = await teachers.get(inv.teacherId);
-  if (teacher) await notify(teacher.userId, `${student.name} ativou a conta.`, `/professor/alunos/${student.id}`);
-  await createSession(user);
+  // Cria (ou atualiza) a conta, liga ao aluno, gasta o convite e avisa o
+  // professor numa transação só, no escopo do professor do convite.
+  const result = await withScope(inv.teacherId, async (r) => {
+    const student = await r.students.get(inv.studentId);
+    if (!student || student.status !== "active") return { error: "Este convite não é mais válido." };
+    if (isMinor(student.birthDate) && formData.get("guardian") !== "on") {
+      return { error: "Como você é menor de 18 anos, seu responsável precisa autorizar o uso." };
+    }
+    let user = student.userId ? await r.users.get(student.userId) : null;
+    if (user) {
+      user = await r.users.put({ ...user, passwordHash: hash });
+    } else {
+      if (await r.users.byEmail(inv.email)) return { error: "Já existe uma conta com este e-mail. Fale com seu professor." };
+      user = await r.users.create({
+        id: newId(),
+        email: inv.email,
+        passwordHash: hash,
+        role: "student",
+        name: student.name,
+        blocked: false,
+        createdAt: nowIso(),
+      });
+      await r.students.put({ ...student, userId: user.id });
+    }
+    await r.invitations.put({ ...inv, usedAt: nowIso() });
+    const teacher = await r.teachers.get(inv.teacherId);
+    await notify(r, teacher?.userId, `${student.name} ativou a conta.`, `/professor/alunos/${student.id}`);
+    return { user };
+  });
+  if ("error" in result) return { error: result.error };
+  await createSession(result.user);
   redirect("/aluno");
 }
 
@@ -144,7 +143,7 @@ export async function changePassword(_prev: FormState, formData: FormData): Prom
 
 function isMinor(birthDate: string): boolean {
   if (!birthDate) return false;
-  const b = new Date(birthDate);
+  const b = new Date(`${birthDate}T12:00:00Z`);
   if (Number.isNaN(b.getTime())) return false;
   const age = (Date.now() - b.getTime()) / (365.25 * 86_400_000);
   return age < 18;

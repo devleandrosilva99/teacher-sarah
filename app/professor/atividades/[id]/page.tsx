@@ -88,7 +88,7 @@ export default async function AtividadePage({
               activityId={id}
               preselected={sp.atribuir}
               classes={cls.map((c) => ({ id: c.id, name: c.name, count: c.studentIds.length }))}
-              students={active.map((s) => ({ id: s.id, name: s.name, level: s.level }))}
+              students={active.map((s) => ({ id: s.id, name: s.name, level: s.levels[activity.subjectId] ?? "" }))}
             />
           )}
         </Card>

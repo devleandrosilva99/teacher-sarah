@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { requireTeacher } from "@/server/auth/session";
-import { classes, students } from "@/server/db/repo";
+import { classes, students, subjects } from "@/server/db/repo";
+import { mainLevel } from "@/lib/subjects";
 import { deleteClass } from "@/server/actions/students";
 import ClassForm from "@/components/teacher/ClassForm";
 import ConfirmButton from "@/components/ConfirmButton";
@@ -8,6 +9,7 @@ import { ButtonLink, PageHeader } from "@/components/ui";
 
 export default async function TurmaPage({ params }: { params: Promise<{ id: string }> }) {
   const { teacher } = await requireTeacher();
+  const subjectList = await subjects.all(teacher.id);
   const { id } = await params;
   const group = await classes.get(teacher.id, id);
   if (!group) notFound();
@@ -26,7 +28,7 @@ export default async function TurmaPage({ params }: { params: Promise<{ id: stri
           </>
         }
       />
-      <ClassForm group={group} students={list.map(({ id, name, level, avatarColor }) => ({ id, name, level, avatarColor }))} />
+      <ClassForm group={group} subjects={subjectList} students={list.map((s) => ({ id: s.id, name: s.name, level: mainLevel(s, subjectList)?.code ?? "", avatarColor: s.avatarColor }))} />
       <form action={deleteClass.bind(null, id)} className="mt-6">
         <ConfirmButton variant="danger" message="Excluir esta turma? Os alunos e o histórico não são apagados.">Excluir turma</ConfirmButton>
       </form>

@@ -1,7 +1,6 @@
 import Link from "next/link";
 import { LogOut } from "lucide-react";
 import SideNav, { type NavItem } from "@/components/nav/SideNav";
-import StorageBanner from "@/components/nav/StorageBanner";
 import { Avatar } from "@/components/ui";
 import { requireTeacher } from "@/server/auth/session";
 import { logout } from "@/server/actions/auth";
@@ -30,7 +29,6 @@ export default async function ProfessorLayout({ children }: { children: React.Re
 
   return (
     <div style={{ ["--brand" as string]: teacher.color } as React.CSSProperties} className="min-h-screen">
-      <StorageBanner />
       <div className="lg:flex">
         <aside className="sticky top-0 z-30 border-b border-line bg-page lg:h-screen lg:w-60 lg:shrink-0 lg:border-b-0 lg:border-r">
           <div className="flex items-center gap-3 px-4 py-3 lg:py-5">

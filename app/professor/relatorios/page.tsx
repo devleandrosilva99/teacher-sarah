@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { requireTeacher } from "@/server/auth/session";
-import { assignments, classes, students, submissions } from "@/server/db/repo";
+import { assignments, classes, students, subjects, submissions } from "@/server/db/repo";
+import SubjectFilter from "@/components/teacher/SubjectFilter";
+import { mainLevel } from "@/lib/subjects";
 import { rowFor, summarize } from "@/server/services/assignments";
 import { SkillBars } from "@/components/charts";
 import { Badge, Card, EmptyState, PageHeader, ProgressBar, Select, scoreVariant } from "@/components/ui";
@@ -10,15 +12,19 @@ import type { Skill } from "@/lib/types";
 
 export const metadata = { title: "Relatórios" };
 
-export default async function RelatoriosPage({ searchParams }: { searchParams: Promise<{ turma?: string }> }) {
+export default async function RelatoriosPage({ searchParams }: { searchParams: Promise<{ turma?: string; disciplina?: string }> }) {
   const { teacher } = await requireTeacher();
-  const { turma } = await searchParams;
-  const [studs, asgs, subs, cls] = await Promise.all([
+  const { turma, disciplina } = await searchParams;
+  const [studs, allAsgs, subs, cls, subjectList] = await Promise.all([
     students.all(teacher.id),
     assignments.all(teacher.id),
     submissions.all(teacher.id),
     classes.all(teacher.id),
+    subjects.all(teacher.id),
   ]);
+  // Com uma disciplina escolhida, o relatório considera só os envios dela.
+  const subject = subjectList.find((x) => x.id === disciplina);
+  const asgs = subject ? allAsgs.filter((a) => a.subjectId === subject.id) : allAsgs;
   const group = turma ? cls.find((c) => c.id === turma) : undefined;
   const scope = studs.filter((s) => s.status === "active" && (!group || group.studentIds.includes(s.id)));
   const scopeIds = new Set(scope.map((s) => s.id));
@@ -28,7 +34,7 @@ export default async function RelatoriosPage({ searchParams }: { searchParams: P
     .sort((a, b) => (a.sum.average ?? 101) - (b.sum.average ?? 101));
 
   // Desempenho por habilidade e questões mais erradas (respostas corrigidas dos alunos no escopo).
-  const skill = new Map<Skill, { s: number; m: number; n: number }>();
+  const skill = new Map<Skill, { label: string; s: number; m: number; n: number }>();
   const qStats = new Map<string, { prompt: string; type: string; hits: number; total: number; score: number; max: number }>();
   for (const sub of subs) {
     if (sub.status === "in_progress" || !scopeIds.has(sub.studentId)) continue;
@@ -37,7 +43,7 @@ export default async function RelatoriosPage({ searchParams }: { searchParams: P
     for (const q of a.questions) {
       const ans = sub.answers[q.id];
       if (!ans || ans.score === null) continue;
-      const k = skill.get(q.skill) ?? { s: 0, m: 0, n: 0 };
+      const k = skill.get(q.skill) ?? { label: q.skillLabel ?? q.skill, s: 0, m: 0, n: 0 };
       k.s += ans.score;
       k.m += ans.maxScore;
       k.n++;
@@ -61,10 +67,11 @@ export default async function RelatoriosPage({ searchParams }: { searchParams: P
     <>
       <PageHeader
         title="Relatórios"
-        subtitle={group ? `Turma: ${group.name}` : "Todos os alunos ativos"}
+        subtitle={[group ? `Turma: ${group.name}` : "Todos os alunos ativos", subject?.name].filter(Boolean).join(" · ")}
         actions={
           cls.length > 0 ? (
             <form className="flex gap-2">
+              {subject && <input type="hidden" name="disciplina" value={subject.id} />}
               <Select name="turma" defaultValue={turma ?? ""} className="w-56">
                 <option value="">Todos os alunos</option>
                 {cls.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
@@ -75,6 +82,7 @@ export default async function RelatoriosPage({ searchParams }: { searchParams: P
         }
       />
 
+      <SubjectFilter subjects={subjectList} current={subject?.id ?? ""} basePath="/professor/relatorios" params={{ turma }} />
       {scope.length === 0 ? (
         <EmptyState title="Sem alunos neste filtro" />
       ) : (
@@ -87,7 +95,7 @@ export default async function RelatoriosPage({ searchParams }: { searchParams: P
             </Card>
             <Card className="lg:col-span-2">
               <h2 className="mb-3 text-sm font-semibold">Por habilidade</h2>
-              <SkillBars skills={[...skill.entries()].map(([k, v]) => ({ skill: k, percent: percent(v.s, v.m), answered: v.n }))} />
+              <SkillBars skills={[...skill.entries()].map(([k, v]) => ({ skill: k, label: v.label, percent: percent(v.s, v.m), answered: v.n }))} />
             </Card>
           </div>
 
@@ -107,7 +115,7 @@ export default async function RelatoriosPage({ searchParams }: { searchParams: P
                 <tbody className="divide-y divide-line">
                   {perStudent.map(({ s, sum }) => (
                     <tr key={s.id}>
-                      <td className="py-2"><Link href={`/professor/alunos/${s.id}`} className="hover:underline">{s.name}</Link> <span className="text-xs text-ink-3">{s.level}</span></td>
+                      <td className="py-2"><Link href={`/professor/alunos/${s.id}`} className="hover:underline">{s.name}</Link> <span className="text-xs text-ink-3">{subject ? s.levels[subject.id] ?? "" : mainLevel(s, subjectList)?.code ?? ""}</span></td>
                       <td className="py-2">
                         {sum.average !== null ? (
                           <div className="flex items-center gap-2"><ProgressBar value={sum.average} className="w-24" /><span className="text-xs">{sum.average}%</span></div>

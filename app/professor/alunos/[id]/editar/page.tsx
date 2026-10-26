@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
 import { requireTeacher } from "@/server/auth/session";
-import { students } from "@/server/db/repo";
+import { students, subjects } from "@/server/db/repo";
 import StudentForm from "@/components/teacher/StudentForm";
 import { PageHeader } from "@/components/ui";
 
@@ -14,7 +14,7 @@ export default async function EditarAlunoPage({ params }: { params: Promise<{ id
   return (
     <>
       <PageHeader title={`Editar ${student.name}`} back={{ href: `/professor/alunos/${id}`, label: student.name }} />
-      <StudentForm student={student} />
+      <StudentForm student={student} subjects={await subjects.all(teacher.id)} />
     </>
   );
 }

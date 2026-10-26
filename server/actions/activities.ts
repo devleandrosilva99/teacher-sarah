@@ -4,7 +4,7 @@ import { z } from "zod";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireTeacher } from "@/server/auth/session";
-import { activities, assignments, classes, questions, students, submissions } from "@/server/db/repo";
+import { isUuid, withScope } from "@/server/db/repo";
 import { createAssignment } from "@/server/services/assignments";
 import { fromInputDateTime, newId, nowIso } from "@/lib/format";
 import type { Activity } from "@/lib/types";
@@ -12,6 +12,7 @@ import type { FormState } from "./state";
 
 const ActivitySchema = z.object({
   id: z.string().default(""),
+  subjectId: z.string().default(""),
   title: z.string().trim().min(2, "Dê um título à atividade.").max(150),
   instructions: z.string().trim().max(2000).default(""),
   items: z
@@ -36,87 +37,100 @@ export async function saveActivity(_prev: FormState, formData: FormData): Promis
   if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Dados inválidos." };
   const d = parsed.data;
 
-  const mine = new Set((await questions.all(teacher.id)).map((q) => q.id));
-  const items = d.items.filter((i) => mine.has(i.questionId));
-  if (items.length === 0) return { error: "Adicione pelo menos uma questão." };
-
-  const existing = d.id ? await activities.get(teacher.id, d.id) : null;
-  if (d.id && !existing) return { error: "Atividade não encontrada." };
-  const act: Activity = {
-    id: existing?.id ?? newId(),
-    teacherId: teacher.id,
-    title: d.title,
-    instructions: d.instructions,
-    items,
-    timeLimitMin: d.timeLimitMin,
-    maxAttempts: d.maxAttempts,
-    shuffle: d.shuffle,
-    showAnswers: d.showAnswers,
-    archived: existing?.archived ?? false,
-    createdAt: existing?.createdAt ?? nowIso(),
-    updatedAt: nowIso(),
-  };
-  await activities.put(act);
+  const result = await withScope(teacher.id, async (r) => {
+    const existing = d.id ? await r.activities.get(d.id) : null;
+    if (d.id && !existing) return { error: "Atividade não encontrada." };
+    // A disciplina é definida na criação: as questões precisam ser dela.
+    const subject = await r.subjects.get(existing?.subjectId ?? d.subjectId);
+    if (!subject) return { error: "Escolha a disciplina." };
+    const ofSubject = new Set((await r.questions.all()).filter((q) => q.subjectId === subject.id).map((q) => q.id));
+    const items = d.items.filter((i) => ofSubject.has(i.questionId));
+    if (items.length === 0) return { error: "Adicione pelo menos uma questão desta disciplina." };
+    const act: Activity = {
+      id: existing?.id ?? newId(),
+      teacherId: teacher.id,
+      subjectId: subject.id,
+      title: d.title,
+      instructions: d.instructions,
+      items,
+      timeLimitMin: d.timeLimitMin,
+      maxAttempts: d.maxAttempts,
+      shuffle: d.shuffle,
+      showAnswers: d.showAnswers,
+      archived: existing?.archived ?? false,
+      createdAt: existing?.createdAt ?? nowIso(),
+      updatedAt: nowIso(),
+    };
+    await r.activities.put(act);
+    return { act, created: !existing };
+  });
+  if ("error" in result) return { error: result.error };
   revalidatePath("/professor/atividades");
-  redirect(`/professor/atividades/${act.id}${existing ? "" : "?nova=1"}`);
+  redirect(`/professor/atividades/${result.act.id}${result.created ? "?nova=1" : ""}`);
 }
 
 export async function setActivityArchived(id: string, archived: boolean): Promise<void> {
   const { teacher } = await requireTeacher();
-  const a = await activities.get(teacher.id, id);
-  if (!a) return;
-  await activities.put({ ...a, archived, updatedAt: nowIso() });
+  await withScope(teacher.id, async (r) => {
+    const a = await r.activities.get(id);
+    if (a) await r.activities.put({ ...a, archived, updatedAt: nowIso() });
+  });
   revalidatePath("/professor/atividades");
 }
 
 export async function assignActivity(_prev: FormState, formData: FormData): Promise<FormState> {
   const { teacher } = await requireTeacher();
-  const activity = await activities.get(teacher.id, String(formData.get("activityId") ?? ""));
-  if (!activity) return { error: "Atividade não encontrada." };
   const targets = formData.getAll("targets").map(String);
   if (targets.length === 0) return { error: "Escolha pelo menos um aluno ou turma." };
-
-  const [studs, cls] = await Promise.all([students.all(teacher.id), classes.all(teacher.id)]);
-  const active = new Set(studs.filter((s) => s.status === "active").map((s) => s.id));
-  const studentIds = new Set<string>();
-  let classId = "";
-  for (const t of targets) {
-    const [kind, id] = t.split(":");
-    if (kind === "aluno" && active.has(id)) studentIds.add(id);
-    if (kind === "turma") {
-      const c = cls.find((x) => x.id === id);
-      if (c) {
-        c.studentIds.filter((s) => active.has(s)).forEach((s) => studentIds.add(s));
-        if (targets.length === 1) classId = c.id;
-      }
-    }
-  }
-  if (studentIds.size === 0) return { error: "Nenhum aluno ativo nos destinos escolhidos." };
-
   const releaseAt = fromInputDateTime(String(formData.get("releaseAt") ?? "")) || nowIso();
   const dueAt = fromInputDateTime(String(formData.get("dueAt") ?? ""));
   if (dueAt && dueAt <= releaseAt) return { error: "O prazo precisa ser depois da liberação." };
 
-  await createAssignment(activity, { studentIds: [...studentIds], classId, releaseAt, dueAt });
+  // Envio, ligação com os alunos e notificações: tudo ou nada.
+  const result = await withScope(teacher.id, async (r) => {
+    const activity = await r.activities.get(String(formData.get("activityId") ?? ""));
+    if (!activity) return { error: "Atividade não encontrada." };
+    const [studs, cls] = [await r.students.all(), await r.classes.all()];
+    const active = new Set(studs.filter((x) => x.status === "active").map((x) => x.id));
+    const studentIds = new Set<string>();
+    let classId = "";
+    for (const t of targets) {
+      const [kind, id] = t.split(":");
+      if (kind === "aluno" && active.has(id)) studentIds.add(id);
+      if (kind === "turma") {
+        const c = cls.find((x) => x.id === id);
+        if (c) {
+          c.studentIds.filter((x) => active.has(x)).forEach((x) => studentIds.add(x));
+          if (targets.length === 1) classId = c.id;
+        }
+      }
+    }
+    if (studentIds.size === 0) return { error: "Nenhum aluno ativo nos destinos escolhidos." };
+    await createAssignment(r, activity, { studentIds: [...studentIds], classId, releaseAt, dueAt });
+    return { count: studentIds.size };
+  });
+  if ("error" in result) return { error: result.error };
   revalidatePath("/professor", "layout");
-  return { ok: `Atividade enviada para ${studentIds.size} aluno(s).` };
+  return { ok: `Atividade enviada para ${result.count} aluno(s).` };
 }
 
 export async function updateAssignmentDue(assignmentId: string, formData: FormData): Promise<void> {
   const { teacher } = await requireTeacher();
-  const a = await assignments.get(teacher.id, assignmentId);
-  if (!a) return;
-  await assignments.put({ ...a, dueAt: fromInputDateTime(String(formData.get("dueAt") ?? "")) });
-  revalidatePath(`/professor/atividades/${a.activityId}`);
+  const a = await withScope(teacher.id, async (r) => {
+    const found = await r.assignments.get(assignmentId);
+    if (!found) return null;
+    const dueAt = fromInputDateTime(String(formData.get("dueAt") ?? ""));
+    if (dueAt && dueAt <= found.releaseAt) return found; // prazo inválido: mantém o atual
+    await r.assignments.setDue(found.id, dueAt);
+    return found;
+  });
+  if (a) revalidatePath(`/professor/atividades/${a.activityId}`);
 }
 
+/** Cancela um envio: o envio e as tentativas dele saem juntos (ON DELETE CASCADE). */
 export async function deleteAssignment(assignmentId: string): Promise<void> {
   const { teacher } = await requireTeacher();
-  const a = await assignments.get(teacher.id, assignmentId);
-  if (!a) return;
-  for (const s of await submissions.all(teacher.id)) {
-    if (s.assignmentId === assignmentId) await submissions.remove(teacher.id, s.id);
-  }
-  await assignments.remove(teacher.id, assignmentId);
+  if (!isUuid(assignmentId)) return;
+  await withScope(teacher.id, (r) => r.assignments.remove(assignmentId));
   revalidatePath("/professor", "layout");
 }

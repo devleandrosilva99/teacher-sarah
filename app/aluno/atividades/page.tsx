@@ -6,8 +6,8 @@ import { EmptyState, PageHeader } from "@/components/ui";
 export const metadata = { title: "Atividades" };
 
 export default async function AtividadesAlunoPage() {
-  const { student, teacher } = await requireStudent();
-  const rows = await studentRows(teacher.id, student.id);
+  const { student, scope } = await requireStudent();
+  const rows = await studentRows(scope, student.id);
   const open = rows.filter((r) => r.status === "not_started" || r.status === "in_progress" || r.status === "overdue");
   const done = rows.filter((r) => r.status === "submitted" || r.status === "graded");
   return (

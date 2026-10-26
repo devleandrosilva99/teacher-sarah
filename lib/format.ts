@@ -3,7 +3,7 @@ export const TIME_ZONE = "America/Sao_Paulo";
 const OFFSET = "-03:00";
 
 export function newId(): string {
-  return crypto.randomUUID().replace(/-/g, "").slice(0, 16);
+  return crypto.randomUUID();
 }
 
 export function nowIso(): string {

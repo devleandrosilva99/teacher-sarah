@@ -4,10 +4,13 @@ import { useActionState, useState } from "react";
 import { savePassage } from "@/server/actions/questions";
 import { initialState } from "@/server/actions/state";
 import { Button, Card, Field, Input, Notice, Select, Textarea } from "@/components/ui";
-import { LEVELS, type Passage } from "@/lib/types";
+import type { Passage, Subject } from "@/lib/types";
+import SubjectPicker from "./SubjectPicker";
 
-export default function PassageForm({ passage }: { passage?: Passage }) {
+export default function PassageForm({ passage, subjects }: { passage?: Passage; subjects: Subject[] }) {
   const [state, action, pending] = useActionState(savePassage, initialState);
+  const [subjectId, setSubjectId] = useState(state.fields?.subjectId ?? passage?.subjectId ?? subjects[0]?.id ?? "");
+  const subject = subjects.find((x) => x.id === subjectId);
   const [kind, setKind] = useState(passage?.kind ?? "reading");
   const v = (k: keyof Passage) => state.fields?.[k] ?? (passage ? String(passage[k] ?? "") : "");
   // key: remonta o formulário após um erro, para os <select> voltarem ao valor enviado.
@@ -16,6 +19,13 @@ export default function PassageForm({ passage }: { passage?: Passage }) {
       {passage && <input type="hidden" name="id" value={passage.id} />}
       <Card>
         <div className="grid gap-3 sm:grid-cols-4">
+          {subjects.length > 1 ? (
+            <div className="sm:col-span-4">
+              <SubjectPicker subjects={subjects} value={subjectId} onChange={setSubjectId} />
+            </div>
+          ) : (
+            <SubjectPicker subjects={subjects} value={subjectId} />
+          )}
           <Field label="Título *" className="sm:col-span-2">
             <Input name="title" required maxLength={150} defaultValue={v("title")} />
           </Field>
@@ -26,9 +36,9 @@ export default function PassageForm({ passage }: { passage?: Passage }) {
             </Select>
           </Field>
           <Field label="Nível">
-            <Select name="level" defaultValue={v("level")}>
+            <Select key={subjectId} name="level" defaultValue={v("level")}>
               <option value="">—</option>
-              {LEVELS.map((l) => <option key={l} value={l}>{l}</option>)}
+              {(subject?.levels ?? []).map((l) => <option key={l.code} value={l.code}>{l.code}</option>)}
             </Select>
           </Field>
           {kind === "listening" && (

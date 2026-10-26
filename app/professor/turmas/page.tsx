@@ -1,15 +1,19 @@
 import Link from "next/link";
 import { Plus } from "lucide-react";
 import { requireTeacher } from "@/server/auth/session";
-import { classes, students } from "@/server/db/repo";
+import { classes, students, subjects } from "@/server/db/repo";
+import SubjectFilter from "@/components/teacher/SubjectFilter";
 import { Avatar, Badge, ButtonLink, EmptyState, PageHeader } from "@/components/ui";
 import { plural } from "@/lib/format";
 
 export const metadata = { title: "Turmas" };
 
-export default async function TurmasPage() {
+export default async function TurmasPage({ searchParams }: { searchParams: Promise<{ disciplina?: string }> }) {
   const { teacher } = await requireTeacher();
-  const [list, studs] = await Promise.all([classes.all(teacher.id), students.all(teacher.id)]);
+  const { disciplina } = await searchParams;
+  const [allClasses, studs, subjectList] = await Promise.all([classes.all(teacher.id), students.all(teacher.id), subjects.all(teacher.id)]);
+  const subject = subjectList.find((x) => x.id === disciplina);
+  const list = subject ? allClasses.filter((c) => c.subjectId === subject.id) : allClasses;
   const byId = new Map(studs.map((s) => [s.id, s]));
   return (
     <>
@@ -18,6 +22,7 @@ export default async function TurmasPage() {
         subtitle="Agrupe alunos para passar atividades e agendar aulas de uma vez."
         actions={<ButtonLink href="/professor/turmas/nova"><Plus size={16} /> Nova turma</ButtonLink>}
       />
+      <SubjectFilter subjects={subjectList} current={subject?.id ?? ""} basePath="/professor/turmas" />
       {list.length === 0 ? (
         <EmptyState title="Nenhuma turma ainda" />
       ) : (

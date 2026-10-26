@@ -1,4 +1,3 @@
-import { SKILL_LABELS, type Skill } from "@/lib/types";
 import { formatDate } from "@/lib/format";
 import { ProgressBar } from "./ui";
 
@@ -33,7 +32,7 @@ export function ScoreHistory({ points }: { points: { date: string; title: string
   );
 }
 
-export function SkillBars({ skills }: { skills: { skill: Skill; percent: number; answered: number }[] }) {
+export function SkillBars({ skills }: { skills: { skill: string; label: string; percent: number; answered: number }[] }) {
   if (skills.length === 0) return <p className="text-sm text-ink-3">Sem respostas corrigidas ainda.</p>;
   return (
     <div className="flex flex-col gap-3">
@@ -42,7 +41,7 @@ export function SkillBars({ skills }: { skills: { skill: Skill; percent: number;
         .map((s) => (
           <div key={s.skill}>
             <div className="mb-1 flex justify-between text-xs">
-              <span className="text-ink-2">{SKILL_LABELS[s.skill]}</span>
+              <span className="text-ink-2">{s.label}</span>
               <span className="font-medium">{s.percent}%</span>
             </div>
             <ProgressBar value={s.percent} />

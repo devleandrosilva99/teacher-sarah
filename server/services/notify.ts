@@ -1,12 +1,12 @@
 import "server-only";
-import { notifications } from "@/server/db/repo";
-import { newId, nowIso } from "@/lib/format";
+import { notifications, type Repo } from "@/server/db/repo";
 
-export async function notify(userId: string | undefined, text: string, href: string): Promise<void> {
+/** Cria uma notificação dentro da transação em andamento. */
+export async function notify(r: Repo, userId: string | undefined, text: string, href: string): Promise<void> {
   if (!userId) return;
-  await notifications.put({ id: newId(), userId, text, href, createdAt: nowIso(), readAt: "" });
+  await r.notifications.add(userId, text, href);
 }
 
 export async function unreadCount(userId: string): Promise<number> {
-  return (await notifications.list(userId)).filter((n) => !n.readAt).length;
+  return notifications.unreadCount(userId);
 }

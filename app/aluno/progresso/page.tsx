@@ -6,8 +6,8 @@ import { Card, PageHeader, Stat } from "@/components/ui";
 export const metadata = { title: "Progresso" };
 
 export default async function ProgressoPage() {
-  const { student, teacher } = await requireStudent();
-  const sum = summarize(await studentRows(teacher.id, student.id));
+  const { student, scope } = await requireStudent();
+  const sum = summarize(await studentRows(scope, student.id));
   return (
     <>
       <PageHeader title="Seu progresso" />

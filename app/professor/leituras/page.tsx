@@ -1,15 +1,19 @@
 import Link from "next/link";
 import { Headphones, FileText, Plus } from "lucide-react";
 import { requireTeacher } from "@/server/auth/session";
-import { passages, questions } from "@/server/db/repo";
+import { passages, questions, subjects } from "@/server/db/repo";
+import SubjectFilter from "@/components/teacher/SubjectFilter";
 import { Badge, ButtonLink, EmptyState, PageHeader } from "@/components/ui";
 import { plural } from "@/lib/format";
 
 export const metadata = { title: "Leituras" };
 
-export default async function LeiturasPage() {
+export default async function LeiturasPage({ searchParams }: { searchParams: Promise<{ disciplina?: string }> }) {
   const { teacher } = await requireTeacher();
-  const [ps, qs] = await Promise.all([passages.all(teacher.id), questions.all(teacher.id)]);
+  const { disciplina } = await searchParams;
+  const [allPs, qs, subjectList] = await Promise.all([passages.all(teacher.id), questions.all(teacher.id), subjects.all(teacher.id)]);
+  const subject = subjectList.find((x) => x.id === disciplina);
+  const ps = subject ? allPs.filter((p) => p.subjectId === subject.id) : allPs;
   return (
     <>
       <PageHeader
@@ -17,6 +21,7 @@ export default async function LeiturasPage() {
         subtitle="Um texto (ou áudio) com várias questões. Na atividade, o aluno vê o texto ao lado das perguntas."
         actions={<ButtonLink href="/professor/leituras/nova"><Plus size={16} /> Novo texto</ButtonLink>}
       />
+      <SubjectFilter subjects={subjectList} current={subject?.id ?? ""} basePath="/professor/leituras" />
       {ps.length === 0 ? (
         <EmptyState title="Nenhum texto ainda" />
       ) : (

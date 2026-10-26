@@ -3,36 +3,39 @@ import { LogOut } from "lucide-react";
 import { requireAdmin } from "@/server/auth/session";
 import { logout } from "@/server/actions/auth";
 import { setTeacherBlocked } from "@/server/actions/admin";
-import { assignments, meta, questions, students, teachers, users } from "@/server/db/repo";
+import { teachers, users, withScope } from "@/server/db/repo";
 import ConfirmButton from "@/components/ConfirmButton";
-import StorageBanner from "@/components/nav/StorageBanner";
 import { Badge, Button, Card, PageHeader, Stat } from "@/components/ui";
 import { formatDate } from "@/lib/format";
 import { APP_NAME } from "@/lib/brand";
 
 export const metadata = { title: "Administração" };
 
-const STORAGE_LABEL: Record<string, string> = {
-  redis: "Redis (persistente)",
-  file: "Arquivo local (.data/db.json)",
-  memory: "Memória (temporário)",
-};
-
 export default async function AdminPage() {
   const admin = await requireAdmin();
   const list = await teachers.all();
-  // O administrador vê só contagens, não os dados pessoais dos alunos.
+  // O administrador vê só contagens, não os dados pessoais dos alunos
+  // (consulta agregada em escopo system).
+  const counts = await withScope({ system: true }, (r) =>
+    r.db.query<{ teacher_id: string; students: number; questions: number; assignments: number }>(
+      `SELECT t.id AS teacher_id,
+         (SELECT count(*)::int FROM students s WHERE s.teacher_id = t.id AND s.status = 'active') AS students,
+         (SELECT count(*)::int FROM questions q WHERE q.teacher_id = t.id) AS questions,
+         (SELECT count(*)::int FROM assignments a WHERE a.teacher_id = t.id) AS assignments
+       FROM teachers t`
+    )
+  );
+  const byTeacher = new Map(counts.map((c) => [c.teacher_id, c]));
   const rows = await Promise.all(
     list.map(async (t) => {
-      const [u, st, qs, as] = await Promise.all([users.get(t.userId), students.all(t.id), questions.all(t.id), assignments.all(t.id)]);
-      return { t, u, students: st.filter((s) => s.status === "active").length, questions: qs.length, assignments: as.length };
+      const c = byTeacher.get(t.id);
+      return { t, u: await users.get(t.userId), students: c?.students ?? 0, questions: c?.questions ?? 0, assignments: c?.assignments ?? 0 };
     })
   );
   rows.sort((a, b) => b.t.createdAt.localeCompare(a.t.createdAt));
 
   return (
     <div className="min-h-screen">
-      <StorageBanner />
       <div className="mx-auto max-w-5xl px-4 py-6">
         <div className="mb-6 flex items-center justify-between">
           <span className="text-sm font-semibold">{APP_NAME} · Administração</span>
@@ -41,7 +44,7 @@ export default async function AdminPage() {
             <form action={logout}><button className="rounded-lg p-1.5 hover:bg-surface-raised" aria-label="Sair"><LogOut size={16} /></button></form>
           </div>
         </div>
-        <PageHeader title="Professores" subtitle={`Armazenamento: ${STORAGE_LABEL[meta.storageKind()]}`} />
+        <PageHeader title="Professores" subtitle="Banco: PostgreSQL (Neon)" />
         <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
           <Stat label="Professores" value={rows.length} />
           <Stat label="Bloqueados" value={rows.filter((r) => r.u?.blocked).length} />

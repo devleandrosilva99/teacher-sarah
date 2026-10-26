@@ -1,20 +1,29 @@
 import Link from "next/link";
 import { Plus } from "lucide-react";
 import { requireTeacher } from "@/server/auth/session";
-import { passages, questions } from "@/server/db/repo";
+import { passages, questions, subjects } from "@/server/db/repo";
+import SubjectFilter from "@/components/teacher/SubjectFilter";
 import { Badge, ButtonLink, EmptyState, Notice, PageHeader, Select } from "@/components/ui";
 import { TYPE_LABELS, TYPE_SHORT } from "@/lib/question-types";
-import { LEVELS, QUESTION_TYPES, SKILLS, SKILL_LABELS } from "@/lib/types";
+import { QUESTION_TYPES } from "@/lib/types";
 import { formatDate } from "@/lib/format";
 
 export const metadata = { title: "Banco de questões" };
 
-type SP = { q?: string; tipo?: string; hab?: string; nivel?: string; tag?: string; status?: string; salva?: string };
+type SP = { q?: string; tipo?: string; hab?: string; nivel?: string; tag?: string; status?: string; salva?: string; disciplina?: string };
 
 export default async function QuestoesPage({ searchParams }: { searchParams: Promise<SP> }) {
   const { teacher } = await requireTeacher();
   const sp = await searchParams;
-  const [all, ps] = await Promise.all([questions.all(teacher.id), passages.all(teacher.id)]);
+  const [everything, ps, subjectList] = await Promise.all([questions.all(teacher.id), passages.all(teacher.id), subjects.all(teacher.id)]);
+  const subject = subjectList.find((x) => x.id === sp.disciplina);
+  const all = subject ? everything.filter((x) => x.subjectId === subject.id) : everything;
+  // Habilidades e níveis: da disciplina escolhida, ou de todas (sem repetir).
+  const skillOptions = [...new Map((subject ? [subject] : subjectList).flatMap((x) => x.skills).map((k) => [k.key, k])).values()];
+  const levelOptions = [...new Map((subject ? [subject] : subjectList).flatMap((x) => x.levels).map((l) => [l.code, l])).values()];
+  const skillLabel = (subjectId: string, key: string) =>
+    subjectList.find((x) => x.id === subjectId)?.skills.find((k) => k.key === key)?.label ?? key;
+  const subjectName = new Map(subjectList.map((x) => [x.id, x.name]));
   const passageTitle = new Map(ps.map((p) => [p.id, p.title]));
   const status = sp.status ?? "active";
   const q = (sp.q ?? "").toLowerCase();
@@ -36,8 +45,10 @@ export default async function QuestoesPage({ searchParams }: { searchParams: Pro
         actions={<ButtonLink href="/professor/questoes/nova"><Plus size={16} /> Nova questão</ButtonLink>}
       />
       {sp.salva && <div className="mb-4"><Notice variant="success">Questão salva.</Notice></div>}
+      <SubjectFilter subjects={subjectList} current={subject?.id ?? ""} basePath="/professor/questoes" />
 
       <form className="mb-4 grid gap-2 rounded-xl border border-line bg-surface p-3 sm:grid-cols-6">
+        {subject && <input type="hidden" name="disciplina" value={subject.id} />}
         <input name="q" defaultValue={sp.q} placeholder="Buscar no enunciado" className="rounded-lg border border-line px-3 py-2 text-sm sm:col-span-2" />
         <Select name="tipo" defaultValue={sp.tipo ?? ""}>
           <option value="">Todos os tipos</option>
@@ -45,11 +56,11 @@ export default async function QuestoesPage({ searchParams }: { searchParams: Pro
         </Select>
         <Select name="hab" defaultValue={sp.hab ?? ""}>
           <option value="">Todas as habilidades</option>
-          {SKILLS.map((s) => <option key={s} value={s}>{SKILL_LABELS[s]}</option>)}
+          {skillOptions.map((k) => <option key={k.key} value={k.key}>{k.label}</option>)}
         </Select>
         <Select name="nivel" defaultValue={sp.nivel ?? ""}>
           <option value="">Todos os níveis</option>
-          {LEVELS.map((l) => <option key={l} value={l}>{l}</option>)}
+          {levelOptions.map((l) => <option key={l.code} value={l.code}>{l.code}</option>)}
         </Select>
         <Select name="status" defaultValue={status}>
           <option value="active">Publicadas e rascunhos</option>
@@ -77,7 +88,8 @@ export default async function QuestoesPage({ searchParams }: { searchParams: Pro
               <div className="line-clamp-2 text-sm">{x.prompt}</div>
               <div className="flex flex-wrap items-center gap-1.5">
                 <Badge variant="purple">{TYPE_SHORT[x.type]}</Badge>
-                <Badge>{SKILL_LABELS[x.skill]}</Badge>
+                {!subject && subjectList.length > 1 && <Badge variant="info">{subjectName.get(x.subjectId)}</Badge>}
+                <Badge>{skillLabel(x.subjectId, x.skill)}</Badge>
                 {x.level && <Badge variant="info">{x.level}</Badge>}
                 {x.passageId && <Badge variant="success">Leitura: {passageTitle.get(x.passageId) ?? "?"}</Badge>}
                 {x.status === "draft" && <Badge variant="warning">Rascunho</Badge>}

@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Plus } from "lucide-react";
 import { requireTeacher } from "@/server/auth/session";
-import { passages, questions } from "@/server/db/repo";
+import { passages, questions, subjects } from "@/server/db/repo";
 import { deletePassage } from "@/server/actions/questions";
 import PassageForm from "@/components/teacher/PassageForm";
 import ConfirmButton from "@/components/ConfirmButton";
@@ -44,7 +44,7 @@ export default async function LeituraPage({ params }: { params: Promise<{ id: st
         )}
         <p className="mt-3 text-xs text-ink-3">Ao montar uma atividade, use &quot;Adicionar leitura&quot; para incluir o texto e todas estas questões de uma vez.</p>
       </Card>
-      <PassageForm passage={passage} />
+      <PassageForm passage={passage} subjects={await subjects.all(teacher.id)} />
       <form action={deletePassage.bind(null, id)} className="mt-6">
         <ConfirmButton variant="danger" message="Excluir este texto? As questões continuam no banco, sem o texto.">Excluir texto</ConfirmButton>
       </form>
