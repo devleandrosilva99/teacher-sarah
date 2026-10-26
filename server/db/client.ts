@@ -80,7 +80,15 @@ function wrap(client: pg.PoolClient): Db {
   };
 }
 
+/**
+ * Papel sem BYPASSRLS assumido em toda transação (ver migração 0001). O dono das
+ * tabelas no Neon ignora a RLS; com SET LOCAL ROLE, as políticas passam a valer
+ * até o fim da transação, inclusive através do pooler.
+ */
+export const APP_ROLE = "app_user";
+
 async function setContext(client: pg.PoolClient, scope: Scope) {
+  await client.query(`SET LOCAL ROLE ${APP_ROLE}`);
   let teacherId = "";
   let studentId = "";
   let system = "";

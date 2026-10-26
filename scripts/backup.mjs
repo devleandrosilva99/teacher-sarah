@@ -38,8 +38,8 @@ const version = spawnSync("pg_dump", ["--version"], { encoding: "utf8" });
 if (version.error || version.status !== 0) {
   fail(
     "pg_dump não encontrado. Instale as ferramentas de cliente do PostgreSQL na mesma versão principal do servidor " +
-      "(ou mais nova). No Windows: winget install PostgreSQL.PostgreSQL.17 e adicione " +
-      '"C:\\Program Files\\PostgreSQL\\17\\bin" ao PATH. No macOS: brew install libpq.'
+      "(o Neon usa a 18) ou mais nova. No Windows: instale o PostgreSQL 18 (instalador da EDB ou winget search PostgreSQL) " +
+      'e adicione "C:\\Program Files\\PostgreSQL\\18\\bin" ao PATH. No macOS: brew install libpq.'
   );
 }
 

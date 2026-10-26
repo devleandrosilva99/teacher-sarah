@@ -385,7 +385,27 @@ CREATE FUNCTION app_owns(row_teacher uuid) RETURNS boolean LANGUAGE sql STABLE A
 CREATE FUNCTION app_student_of(row_teacher uuid) RETURNS boolean LANGUAGE sql STABLE AS
   $$ SELECT row_teacher = app_teacher_id() AND app_student_id() IS NOT NULL $$;
 
--- FORCE: o app conecta como dono das tabelas, que sem isso ignoraria a RLS.
+-- Papel do app. O dono das tabelas no Neon (neondb_owner) tem BYPASSRLS e
+-- ignoraria toda a RLS. Por isso o app conecta como dono, mas no início de cada
+-- transação faz SET LOCAL ROLE app_user: um papel sem login, sem BYPASSRLS e que
+-- não é dono de nada. Daí em diante a RLS vale. As migrações rodam como dono.
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'app_user') THEN
+    CREATE ROLE app_user NOLOGIN NOBYPASSRLS NOSUPERUSER NOCREATEDB NOCREATEROLE;
+  END IF;
+  -- O dono pode assumir o papel (SET), mas não herda os privilégios dele.
+  EXECUTE format('GRANT app_user TO %I WITH INHERIT FALSE, SET TRUE', current_user);
+  EXECUTE format('GRANT USAGE ON SCHEMA %I TO app_user', current_schema());
+  EXECUTE format('GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA %I TO app_user', current_schema());
+  EXECUTE format('REVOKE ALL ON schema_migrations FROM app_user');
+  EXECUTE format('GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA %I TO app_user', current_schema());
+  -- Tabelas criadas por migrações futuras já nascem com o acesso do app.
+  EXECUTE format('ALTER DEFAULT PRIVILEGES IN SCHEMA %I GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO app_user', current_schema());
+END
+$$;
+
+-- FORCE: o dono também fica sujeito à RLS (útil se um dia ele perder o BYPASSRLS).
 ALTER TABLE subjects            ENABLE ROW LEVEL SECURITY; ALTER TABLE subjects            FORCE ROW LEVEL SECURITY;
 ALTER TABLE subject_skills      ENABLE ROW LEVEL SECURITY; ALTER TABLE subject_skills      FORCE ROW LEVEL SECURITY;
 ALTER TABLE subject_levels      ENABLE ROW LEVEL SECURITY; ALTER TABLE subject_levels      FORCE ROW LEVEL SECURITY;

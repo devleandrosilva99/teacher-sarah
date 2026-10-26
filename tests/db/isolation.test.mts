@@ -21,13 +21,34 @@ describe("isolamento (RLS)", { skip: SKIP }, () => {
   });
   after(async () => env?.cleanup());
 
-  test("o papel do app não tem BYPASSRLS nem é superusuário", async () => {
-    const { rows } = await env.admin.query(
-      `SELECT rolname, rolbypassrls, rolsuper FROM pg_roles WHERE rolname = current_user`
-    );
-    console.log(`  papel: ${rows[0].rolname}, rolbypassrls=${rows[0].rolbypassrls}, rolsuper=${rows[0].rolsuper}`);
-    assert.equal(rows[0].rolbypassrls, false);
-    assert.equal(rows[0].rolsuper, false);
+  test("dentro das transações do app, o papel é app_user, sem BYPASSRLS", async () => {
+    const owner = (await env.admin.query(`SELECT rolname, rolbypassrls FROM pg_roles WHERE rolname = session_user`)).rows[0];
+    console.log(`  papel da conexão: ${owner.rolname}, rolbypassrls=${owner.rolbypassrls}`);
+    await withScope(A.teacher.id, async (r) => {
+      const row = await r.db.one<{ rolname: string; rolbypassrls: boolean; rolsuper: boolean }>(
+        `SELECT rolname, rolbypassrls, rolsuper FROM pg_roles WHERE rolname = current_user`
+      );
+      console.log(`  papel efetivo no app: ${row!.rolname}, rolbypassrls=${row!.rolbypassrls}, rolsuper=${row!.rolsuper}`);
+      assert.equal(row!.rolname, "app_user");
+      assert.equal(row!.rolbypassrls, false);
+      assert.equal(row!.rolsuper, false);
+    });
+  });
+
+  test("sem o SET ROLE, o dono veria tudo (por isso o app nunca consulta como dono)", async () => {
+    // Conexão do dono, sem nenhum contexto de RLS definido.
+    const pg = (await import("pg")).default;
+    const raw = new pg.Client({ connectionString: (await import("./setup.mts")).DB_URL });
+    await raw.connect();
+    try {
+      await raw.query(`SET search_path TO "${env.schema}"`);
+      const { rowCount } = await raw.query(`SELECT 1 FROM students`);
+      const { rows } = await raw.query(`SELECT rolbypassrls FROM pg_roles WHERE rolname = current_user`);
+      if (rows[0].rolbypassrls) assert.ok((rowCount ?? 0) >= 2, "dono com BYPASSRLS deveria ver os alunos de A e B");
+      else assert.equal(rowCount, 0);
+    } finally {
+      await raw.end();
+    }
   });
 
   test("RLS está ativa e forçada em todas as tabelas com teacher_id", async () => {

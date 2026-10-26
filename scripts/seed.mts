@@ -7,8 +7,8 @@ loadEnv(process.argv.find((a) => a.startsWith("--env-file="))?.split("=")[1] ?? 
 // Conexão direta: o seed é uma transação longa.
 process.env.DATABASE_URL = process.env.DATABASE_URL_UNPOOLED ?? process.env.DATABASE_URL;
 
-const { configureDb, transaction, closeDb } = await import("../server/db/client");
-const { seed } = await import("../server/db/seed");
+const { configureDb, transaction, closeDb } = await import("../server/db/client.ts");
+const { seed } = await import("../server/db/seed.ts");
 
 configureDb({ autoSeed: false });
 try {
