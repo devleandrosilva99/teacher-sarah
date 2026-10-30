@@ -24,7 +24,7 @@ npm run dev
 
 No primeiro acesso, o app cria o administrador e os dados de demonstração. As contas estão listadas no topo de [server/db/seed.ts](server/db/seed.ts).
 
-Sem SMTP configurado, os e-mails (recuperação de senha, confirmação, convites) ficam em `.data/outbox/` e aparecem em http://localhost:3000/dev/emails. Sem `BLOB_READ_WRITE_TOKEN`, os arquivos enviados ficam em `.data/uploads/`. As duas pastas ficam fora do Git.
+Sem SMTP configurado, os e-mails (recuperação de senha, confirmação, convites) ficam em `.data/outbox/` e aparecem em http://localhost:3000/dev/emails. Sem Vercel Blob (`BLOB_STORE_ID` com OIDC ou `BLOB_READ_WRITE_TOKEN`), os arquivos enviados ficam em `.data/uploads/`. As duas pastas ficam fora do Git.
 
 | Comando | O que faz |
 | --- | --- |
@@ -39,7 +39,7 @@ Os testes de banco rodam na branch dev, num schema temporário que é apagado no
 
 ## Variáveis de ambiente
 
-Veja [.env.example](.env.example). Para o banco, o código usa `DATABASE_APP_URL` (o app, com o papel `app_login`, pelo pooler; se não existir, usa `DATABASE_URL`) e `DATABASE_URL_UNPOOLED` (migrações, seed, testes e backup). E-mail e arquivos usam `SMTP_*`, `MAIL_FROM` e `BLOB_READ_WRITE_TOKEN`, todos opcionais no desenvolvimento. As variáveis `POSTGRES_*`, `PG*` e `NEON_AUTH_*` criadas pela integração Neon-Vercel não são usadas.
+Veja [.env.example](.env.example). Para o banco, o código usa `DATABASE_APP_URL` (o app, com o papel `app_login`, pelo pooler; se não existir, usa `DATABASE_URL`) e `DATABASE_URL_UNPOOLED` (migrações, seed, testes e backup). E-mail e arquivos usam `SMTP_*`, `MAIL_FROM` e `BLOB_STORE_ID` (OIDC) ou `BLOB_READ_WRITE_TOKEN`, todos opcionais no desenvolvimento. As variáveis `POSTGRES_*`, `PG*` e `NEON_AUTH_*` criadas pela integração Neon-Vercel não são usadas.
 
 ## Segurança, em resumo
 

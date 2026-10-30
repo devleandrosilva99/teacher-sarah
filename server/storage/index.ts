@@ -1,14 +1,21 @@
 import "server-only";
-import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
+import { createHmac, timingSafeEqual } from "node:crypto";
 import fs from "node:fs";
 import fsp from "node:fs/promises";
 import path from "node:path";
+import { meta } from "@/server/db/repo";
 
 // Armazenamento dos arquivos enviados. Três modos:
-//   * blob:  Vercel Blob privado, quando existe BLOB_READ_WRITE_TOKEN. O
-//            navegador envia direto ao Blob com um token de cliente que só
-//            vale para aquela chave, aquele tipo e aquele tamanho máximo;
-//            o download sai por uma URL assinada de 5 minutos;
+//   * blob:  Vercel Blob privado, com uma de duas autenticações:
+//              - OIDC (o padrão da Vercel ao ligar um store): BLOB_STORE_ID
+//                mais o token OIDC de curta duração que a Vercel injeta em cada
+//                requisição (VERCEL_OIDC_TOKEN). O navegador envia por uma URL
+//                pré-assinada pedida à rota /api/uploads/blob
+//                (handleUploadPresigned), que só a emite para a chave, o tipo e
+//                o tamanho autorizados antes pelo servidor;
+//              - BLOB_READ_WRITE_TOKEN (token fixo): o navegador envia com um
+//                token de cliente com as mesmas restrições.
+//            Nas duas, o download sai por uma URL assinada de 5 minutos;
 //   * local: desenvolvimento local sem token. Os arquivos ficam em
 //            .data/uploads/ (fora do Git); o envio passa pela rota
 //            /api/uploads/local/[id] com um token HMAC de validade curta;
@@ -19,6 +26,7 @@ export type StorageMode = "blob" | "local" | "off";
 
 export type UploadTicket =
   | { kind: "blob"; pathname: string; clientToken: string }
+  | { kind: "blob-presigned"; pathname: string; handleUploadUrl: string; clientPayload: string }
   | { kind: "local"; url: string };
 
 export interface StorageAdapter {
@@ -36,8 +44,17 @@ export const UPLOADS_UNAVAILABLE = "O envio de arquivos ainda não está configu
 const UPLOAD_TTL_MS = 10 * 60_000;
 const DOWNLOAD_TTL_MS = 5 * 60_000;
 
+/** Como o app se autentica no Vercel Blob (null = não configurado). O token fixo tem preferência. */
+export function blobAuth(): { kind: "token"; token: string } | { kind: "oidc" } | null {
+  const token = process.env.BLOB_READ_WRITE_TOKEN;
+  if (token) return { kind: "token", token };
+  // Na Vercel o token OIDC chega em cada requisição; fora dela, só se vier no ambiente (vercel env pull).
+  if (process.env.BLOB_STORE_ID && (process.env.VERCEL === "1" || process.env.VERCEL_OIDC_TOKEN)) return { kind: "oidc" };
+  return null;
+}
+
 export function storageMode(): StorageMode {
-  if (process.env.BLOB_READ_WRITE_TOKEN) return "blob";
+  if (blobAuth()) return "blob";
   return process.env.VERCEL === "1" ? "off" : "local";
 }
 
@@ -52,18 +69,27 @@ export function storageKey(teacherId: string, purpose: string, fileId: string): 
 
 // ---------------------------------------------------------------- Vercel Blob
 
-function blobAdapter(token: string): StorageAdapter {
+export const BLOB_UPLOAD_ROUTE = "/api/uploads/blob";
+
+function blobAdapter(auth: { kind: "token"; token: string } | { kind: "oidc" }): StorageAdapter {
   const sdk = () => import("@vercel/blob");
+  // Com OIDC as chamadas vão sem token: o SDK usa BLOB_STORE_ID e o token OIDC da requisição.
+  const cred = auth.kind === "token" ? { token: auth.token } : {};
   return {
     mode: "blob",
-    async createUpload({ key, contentType, maxBytes }) {
+    async createUpload({ fileId, key, contentType, maxBytes }) {
+      const validUntil = Date.now() + UPLOAD_TTL_MS;
+      if (auth.kind === "oidc") {
+        const clientPayload = await signClaims({ id: fileId, key, ct: contentType, max: maxBytes, exp: validUntil });
+        return { kind: "blob-presigned", pathname: key, handleUploadUrl: BLOB_UPLOAD_ROUTE, clientPayload };
+      }
       const { generateClientTokenFromReadWriteToken } = await import("@vercel/blob/client");
       const clientToken = await generateClientTokenFromReadWriteToken({
-        token,
+        token: auth.token,
         pathname: key,
         allowedContentTypes: [contentType],
         maximumSizeInBytes: maxBytes,
-        validUntil: Date.now() + UPLOAD_TTL_MS,
+        validUntil,
         addRandomSuffix: false,
         allowOverwrite: false,
       });
@@ -72,7 +98,7 @@ function blobAdapter(token: string): StorageAdapter {
     async head(key) {
       const { head, BlobNotFoundError } = await sdk();
       try {
-        const h = await head(key, { token });
+        const h = await head(key, cred);
         return { size: h.size, contentType: h.contentType };
       } catch (err) {
         if (err instanceof BlobNotFoundError) return null;
@@ -82,7 +108,7 @@ function blobAdapter(token: string): StorageAdapter {
     async downloadUrl(key) {
       const { issueSignedToken, presignUrl } = await sdk();
       const validUntil = Date.now() + DOWNLOAD_TTL_MS;
-      const signed = await issueSignedToken({ token, pathname: key, operations: ["get"], validUntil });
+      const signed = await issueSignedToken({ ...cred, pathname: key, operations: ["get"], validUntil });
       return (await presignUrl(signed, { operation: "get", pathname: key, access: "private", validUntil })).presignedUrl;
     },
     async read() {
@@ -91,22 +117,52 @@ function blobAdapter(token: string): StorageAdapter {
     async delete(keys) {
       if (!keys.length) return;
       const { del } = await sdk();
-      await del(keys, { token });
+      await del(keys, cred);
     },
   };
 }
 
+/** Limites da URL pré-assinada a partir da autorização assinada pelo servidor (ou null se não vale). */
+export async function presignedUploadLimits(clientPayload: string | null, pathname: string) {
+  const c = await verifyUploadClaims(clientPayload ?? "");
+  if (!c || c.key !== pathname) return null;
+  return { allowedContentTypes: [c.ct], maximumSizeInBytes: c.max, validUntil: c.exp };
+}
+
+/**
+ * Rota /api/uploads/blob (modo OIDC): emite o token "put" só para a chave,
+ * o tipo e o tamanho que o servidor autorizou no pedido de envio.
+ */
+export async function presignedUploadToken(clientPayload: string | null, pathname: string) {
+  const limits = await presignedUploadLimits(clientPayload, pathname);
+  if (!limits) throw new Error("Autorização de envio inválida ou vencida.");
+  const { issueSignedToken } = await import("@vercel/blob");
+  const token = await issueSignedToken({ pathname, operations: ["put"], ...limits });
+  return { token, urlOptions: { ...limits, addRandomSuffix: false, allowOverwrite: false } };
+}
+
 // ---------------------------------------------------------------- local
 
-const g = globalThis as unknown as { __tsUploadSecret?: Buffer };
-const uploadSecret = () => (g.__tsUploadSecret ??= randomBytes(32));
+// A autorização de envio é assinada com uma chave derivada do segredo da
+// sessão, igual em todas as instâncias: na Vercel, a ação que autoriza e a
+// rota que recebe o envio podem rodar em instâncias diferentes.
+const g = globalThis as unknown as { __tsUploadSecret?: Promise<Buffer> | null };
+function uploadSecret(): Promise<Buffer> {
+  g.__tsUploadSecret ??= Promise.resolve(process.env.SESSION_SECRET || meta.secret())
+    .then((secret) => createHmac("sha256", secret).update("docentia-uploads-v1").digest())
+    .catch((err) => {
+      g.__tsUploadSecret = null;
+      throw err;
+    });
+  return g.__tsUploadSecret;
+}
 
 export function localUploadDir(): string {
   // turbopackIgnore: caminho só do modo local; não deve puxar o projeto para o pacote da função.
   return process.env.UPLOAD_DIR || path.join(/*turbopackIgnore: true*/ process.cwd(), ".data", "uploads");
 }
 
-interface LocalUploadClaims {
+interface UploadClaims {
   id: string;
   key: string;
   ct: string;
@@ -114,24 +170,30 @@ interface LocalUploadClaims {
   exp: number;
 }
 
-function signClaims(c: LocalUploadClaims): string {
+async function signClaims(c: UploadClaims): Promise<string> {
   const data = Buffer.from(JSON.stringify(c)).toString("base64url");
-  return `${data}.${createHmac("sha256", uploadSecret()).update(data).digest("base64url")}`;
+  return `${data}.${createHmac("sha256", await uploadSecret()).update(data).digest("base64url")}`;
 }
 
-/** Confere o token da rota de upload local (assinatura, validade e id). */
-export function verifyLocalUpload(token: string, fileId: string): LocalUploadClaims | null {
+/** Confere uma autorização de envio (assinatura e validade). */
+export async function verifyUploadClaims(token: string): Promise<UploadClaims | null> {
   const [data, sig] = token.split(".");
   if (!data || !sig) return null;
-  const expected = Buffer.from(createHmac("sha256", uploadSecret()).update(data).digest("base64url"));
+  const expected = Buffer.from(createHmac("sha256", await uploadSecret()).update(data).digest("base64url"));
   const given = Buffer.from(sig);
   if (expected.length !== given.length || !timingSafeEqual(expected, given)) return null;
   try {
-    const c = JSON.parse(Buffer.from(data, "base64url").toString()) as LocalUploadClaims;
-    return c.id === fileId && c.exp > Date.now() ? c : null;
+    const c = JSON.parse(Buffer.from(data, "base64url").toString()) as UploadClaims;
+    return c.exp > Date.now() ? c : null;
   } catch {
     return null;
   }
+}
+
+/** Confere o token da rota de upload local (assinatura, validade e id). */
+export async function verifyLocalUpload(token: string, fileId: string): Promise<UploadClaims | null> {
+  const c = await verifyUploadClaims(token);
+  return c && c.id === fileId ? c : null;
 }
 
 function localPath(key: string): string {
@@ -142,7 +204,7 @@ function localPath(key: string): string {
 }
 
 /** Grava o corpo enviado à rota local, respeitando o tamanho máximo. Não sobrescreve. */
-export async function writeLocalUpload(c: LocalUploadClaims, body: ReadableStream<Uint8Array>): Promise<{ size: number } | { error: string }> {
+export async function writeLocalUpload(c: UploadClaims, body: ReadableStream<Uint8Array>): Promise<{ size: number } | { error: string }> {
   const file = localPath(c.key);
   await fsp.mkdir(path.dirname(file), { recursive: true });
   let size = 0;
@@ -174,7 +236,7 @@ function localAdapter(): StorageAdapter {
   return {
     mode: "local",
     async createUpload({ fileId, key, contentType, maxBytes }) {
-      const t = signClaims({ id: fileId, key, ct: contentType, max: maxBytes, exp: Date.now() + UPLOAD_TTL_MS });
+      const t = await signClaims({ id: fileId, key, ct: contentType, max: maxBytes, exp: Date.now() + UPLOAD_TTL_MS });
       return { kind: "local", url: `/api/uploads/local/${fileId}?t=${encodeURIComponent(t)}` };
     },
     async head(key) {
@@ -232,8 +294,8 @@ const offAdapter: StorageAdapter = {
 };
 
 export function storage(): StorageAdapter {
-  const token = process.env.BLOB_READ_WRITE_TOKEN;
-  if (token) return blobAdapter(token);
+  const auth = blobAuth();
+  if (auth) return blobAdapter(auth);
   return process.env.VERCEL === "1" ? offAdapter : localAdapter();
 }
 

@@ -285,12 +285,12 @@ tests/           corretores, verificação de acesso ao banco, testes de banco (
   - sessão em cookie `httpOnly`, `SameSite=Lax` e `Secure` em produção, assinada com HMAC-SHA256, válida por 14 dias, com a versão da conta (cai quando a senha muda). O segredo vem de `SESSION_SECRET` ou é gerado e guardado no banco (e lido uma vez por instância);
   - links de e-mail com 32 bytes aleatórios, uso único, só o hash no banco; páginas com token no endereço não enviam `Referer`;
   - limites por IP usam só os cabeçalhos definidos pela Vercel (`x-vercel-forwarded-for`, depois `x-real-ip`), nunca o primeiro valor de `x-forwarded-for`, que o cliente pode forjar;
-  - arquivos: o navegador envia direto ao armazenamento com uma autorização que vale só para aquela chave, aquele tipo e aquele tamanho máximo, por 10 minutos; o download passa sempre por `/arquivos/[id]`, que consulta a tabela no escopo de quem pede e redireciona para uma URL assinada de 5 minutos (no modo local, o próprio app serve o arquivo com `Content-Security-Policy: sandbox`); SVG e HTML não são aceitos;
+  - arquivos: o navegador envia direto ao armazenamento com uma autorização que vale só para aquela chave, aquele tipo e aquele tamanho máximo, por 10 minutos. Com o store ligado por OIDC, essa autorização é assinada pelo servidor e trocada na rota `/api/uploads/blob` por uma URL pré-assinada do Blob (`handleUploadPresigned`); com `BLOB_READ_WRITE_TOKEN`, por um token de cliente; o download passa sempre por `/arquivos/[id]`, que consulta a tabela no escopo de quem pede e redireciona para uma URL assinada de 5 minutos (no modo local, o próprio app serve o arquivo com `Content-Security-Policy: sandbox`); SVG e HTML não são aceitos;
   - `proxy.ts` barra quem não tem sessão. Cada página e cada Server Action conferem de novo usuário, papel e dono do dado;
   - o gabarito nunca vai para o navegador do aluno antes da hora (verificado no HTML entregue);
   - os dados enviados são validados com Zod e com limites de tamanho.
 - **LGPD:** CPF e endereço são opcionais, os termos precisam ser aceitos, menores de idade precisam de autorização do responsável, o aluno exporta os dados e pede exclusão, o professor exporta e exclui. A exportação inclui os arquivos enviados (nome, tipo, tamanho, data e endereço para baixar) e só inclui o gabarito quando a regra da atividade permite. Excluir o aluno apaga também os arquivos dele do armazenamento. A chave dos objetos não usa o nome original do arquivo. O administrador não vê dados de alunos.
-- **Modos sem conta configurada:** sem SMTP, o e-mail vai para `.data/outbox/` no desenvolvimento local e, na Vercel, só para um aviso no log (sem o corpo, que tem o link). Sem `BLOB_READ_WRITE_TOKEN`, os arquivos vão para `.data/uploads/` no desenvolvimento local e, na Vercel, o envio de arquivos fica desativado com aviso. As duas pastas ficam fora do Git (`/.data/`).
+- **Modos sem conta configurada:** sem SMTP, o e-mail vai para `.data/outbox/` no desenvolvimento local e, na Vercel, só para um aviso no log (sem o corpo, que tem o link). Sem Vercel Blob configurado (nem `BLOB_STORE_ID` com OIDC, nem `BLOB_READ_WRITE_TOKEN`), os arquivos vão para `.data/uploads/` no desenvolvimento local e, na Vercel, o envio de arquivos fica desativado com aviso. As duas pastas ficam fora do Git (`/.data/`).
 - **Interface:** responsiva. No celular, o professor tem menu horizontal e o aluno tem menu inferior. A cor da marca de cada professor é aplicada nas áreas dele e dos alunos.
 
 ## 8. Configuração e publicação
@@ -301,7 +301,8 @@ tests/           corretores, verificação de acesso ao banco, testes de banco (
 | `DATABASE_URL_UNPOOLED` | Conexão direta como dono: migrações, seed, testes e backup |
 | `DATABASE_APP_URL` | Recomendado: conexão do app com o papel `app_login`, pelo pooler. Criada por `npm run db:app-login` |
 | `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `MAIL_FROM` | Envio de e-mail (por exemplo, Gmail com senha de app: `smtp.gmail.com`, porta 465) |
-| `BLOB_READ_WRITE_TOKEN` | Envio de arquivos (Vercel Blob privado). A Vercel cria ao ligar um store Blob ao projeto |
+| `BLOB_STORE_ID`, `BLOB_WEBHOOK_PUBLIC_KEY` | Envio de arquivos (Vercel Blob privado) com autenticação OIDC, o padrão da Vercel: ela cria as duas ao ligar o store ao projeto, e o token OIDC de curta duração chega em cada requisição (exige "System Environment Variables" habilitado) |
+| `BLOB_READ_WRITE_TOKEN` | Alternativa ao OIDC: token fixo do store. Se existir, tem preferência |
 | `ADMIN_EMAIL`, `ADMIN_PASSWORD` | Conta de administrador, criada no primeiro acesso |
 | `SEED_DEMO=false` | Começar sem dados de demonstração (recomendado com usuários reais, porque as senhas de demonstração estão no repositório público) |
 | `SESSION_SECRET` | Opcional |
@@ -335,18 +336,18 @@ As variáveis `POSTGRES_*`, `PG*` e `NEON_AUTH_*` que a integração Neon-Vercel
 
 ## 9. Qualidade e testes
 
-- `npm test` roda dois grupos (80 testes no total):
+- `npm test` roda dois grupos (83 testes no total):
   - **19 testes sem banco:**
     - 12 dos corretores (pontuação parcial, variações de lacuna, maiúsculas, ordem nunca correta de início, validação do editor, entrega de arquivo);
     - 4 de acesso ao banco: nenhuma consulta fora do `withScope`, o formato do início da transação e um valor malicioso (uuid com aspas e ponto e vírgula) recusado antes de chegar ao banco;
     - 3 do WhatsApp (telefone e montagem do link e das mensagens).
-  - **61 testes de banco** na branch dev, num schema temporário apagado no fim (os que sobram de execuções interrompidas são apagados no início):
+  - **64 testes de banco** na branch dev, num schema temporário apagado no fim (os que sobram de execuções interrompidas são apagados no início):
     - isolamento por RLS, com SQL cru e sem filtro de `teacher_id`, chaves estrangeiras entre professores e o que o aluno enxerga;
     - tipos `numeric` e `date`, transações desfeitas por inteiro, entregas simultâneas, exclusão de aluno e cancelamento de envio;
     - turmas: arquivar e restaurar, turma arquivada fora dos destinos, exclusão bloqueada com aula realizada, exclusão que cancela as aulas e avisa, `RESTRICT` por SQL;
     - consultas leves: sem a cópia congelada nem as respostas, por aluno, fila de correção e busca de questões, sem vazar entre professores;
     - e-mail: token expirado, reutilizado, inexistente e alterado; resposta igual para e-mail inexistente; limites por e-mail, por IP e de login; versão da sessão; confirmação de e-mail; link do admin; caixa de saída; cabeçalhos de IP;
-    - arquivos: download (outro aluno, outro professor e sem login recebem 404), isolamento da tabela `files` por SQL cru, tipo e tamanho, limite por questão, mídia antes da liberação, `RESTRICT`, exclusão do aluno apagando os objetos;
+    - arquivos: download (outro aluno, outro professor e sem login recebem 404), isolamento da tabela `files` por SQL cru, tipo e tamanho, limite por questão, mídia antes da liberação, `RESTRICT`, exclusão do aluno apagando os objetos; escolha do modo de armazenamento (token fixo, OIDC, local, desligado) e a autorização da URL pré-assinada recusada para outra chave, alterada ou vencida;
     - papel `app_login`, pelo pooler e pela conexão direta: não lê tabelas, `RESET ROLE` não volta para o dono, não desliga a RLS e o app inteiro funciona com ele.
 - A checagem de tipos e o build de produção passam.
 - Testado manualmente no navegador, com o banco da branch dev:

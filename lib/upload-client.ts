@@ -4,7 +4,10 @@
 // servidor, envia direto ao armazenamento (Vercel Blob ou rota local) e pede
 // a confirmação. Quem decide tipo e tamanho é sempre o servidor.
 
-type Ticket = { kind: "blob"; pathname: string; clientToken: string } | { kind: "local"; url: string };
+type Ticket =
+  | { kind: "blob"; pathname: string; clientToken: string }
+  | { kind: "blob-presigned"; pathname: string; handleUploadUrl: string; clientPayload: string }
+  | { kind: "local"; url: string };
 type Grant = { fileId: string; ticket: Ticket } | { error: string };
 
 const MAX_SIDE = 1600;
@@ -49,6 +52,15 @@ export async function uploadFile<C extends object>(
     if (grant.ticket.kind === "blob") {
       const { put } = await import("@vercel/blob/client");
       await put(grant.ticket.pathname, file, { access: "private", token: grant.ticket.clientToken, contentType: file.type });
+    } else if (grant.ticket.kind === "blob-presigned") {
+      // Store ligado por OIDC: a URL pré-assinada vem da rota do app, com a autorização do servidor.
+      const { uploadPresigned } = await import("@vercel/blob/client");
+      await uploadPresigned(grant.ticket.pathname, file, {
+        access: "private",
+        handleUploadUrl: grant.ticket.handleUploadUrl,
+        clientPayload: grant.ticket.clientPayload,
+        contentType: file.type,
+      });
     } else {
       const res = await fetch(grant.ticket.url, { method: "PUT", body: file, headers: { "Content-Type": file.type } });
       if (!res.ok) return { error: res.status === 413 ? "Arquivo grande demais." : "Não foi possível enviar o arquivo." };

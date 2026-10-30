@@ -69,7 +69,7 @@ A descrição completa do sistema está em [DOCUMENTACAO.md](DOCUMENTACAO.md), e
   - o aluno lê só os próprios arquivos e as mídias que estão num envio atribuído a ele **e já liberado**;
   - uma mídia ligada a um envio não pode ser apagada (FK `RESTRICT`, conferido também no app).
 - **Armazenamento** (`server/storage/`):
-  - **Vercel Blob privado**, com `@vercel/blob` 2.8.2. O navegador envia direto ao Blob com um token de cliente restrito àquela chave, àquele tipo e àquele tamanho, por 10 minutos. O download é por URL assinada de 5 minutos;
+  - **Vercel Blob privado**, com `@vercel/blob` 2.8.2, autenticado por OIDC (`BLOB_STORE_ID` e o token OIDC da Vercel, o padrão ao ligar o store) ou por `BLOB_READ_WRITE_TOKEN`. O navegador envia direto ao Blob com uma autorização restrita àquela chave, àquele tipo e àquele tamanho, por 10 minutos. Com OIDC, ela vira uma URL pré-assinada na rota `/api/uploads/blob` (`handleUploadPresigned`); com o token fixo, um token de cliente. O download é por URL assinada de 5 minutos;
   - **local** em `.data/uploads/`, com uma rota de upload protegida por token HMAC;
   - **desligado** na Vercel sem token.
 - **Fluxo:**
@@ -130,18 +130,19 @@ A medição "depois" foi feita ao fim do item 2, ainda com a conexão do dono, a
 
 ## 4. Testes
 
-`npm test`: 80 testes, todos passando.
+`npm test`: 83 testes, todos passando.
 
 - **19 sem banco:**
   - corretores, inclusive o da entrega de arquivo;
   - acesso ao banco, inclusive o formato do início da transação e o valor malicioso recusado;
   - WhatsApp.
-- **61 de banco**, na branch dev, em schema temporário:
+- **64 de banco**, na branch dev, em schema temporário:
   - Fase 1 (isolamento, transações, entregas simultâneas etc.);
   - turmas arquivadas;
   - consultas leves;
   - e-mail: token expirado, reutilizado, inexistente e alterado; resposta igual para e-mail inexistente; limites; versão da sessão; confirmação; caixa de saída;
   - arquivos: outro aluno, outro professor e sem login recebem 404; RLS com SQL cru; tipo e tamanho; mídia antes da liberação; `RESTRICT`; exclusão do aluno apagando os objetos;
+  - armazenamento: escolha do modo (token fixo, OIDC, local, desligado) e autorização da URL pré-assinada recusada para outra chave, alterada ou vencida;
   - `app_login` pelo pooler e pela conexão direta.
 
 Também testado no navegador, com o servidor local na branch dev:
@@ -165,6 +166,7 @@ Os dados criados para esses testes foram apagados da dev no fim.
 - **Migração 0004 refeita na dev:** a primeira versão tinha uma regra que faria falhar o cancelamento de envios com arquivos (`CHECK` em conflito com o `SET NULL`). Como ela só tinha sido aplicada na dev, corrigi o arquivo e reapliquei; a `main` nunca recebeu a versão errada.
 - **Consultas em paralelo na mesma conexão:** o `pg` avisa que isso deixa de funcionar na versão 9. As quatro ocorrências dentro de transações viraram consultas em sequência.
 - **Commit do item 5 sem conferir o código de saída:** uma execução do teste de arquivos falhou ao carregar, antes de rodar qualquer teste, e o commit saiu porque eu conferi o texto da saída, não o código. Repeti logo depois: o arquivo passou (10 de 10) e a suíte de banco inteira passou duas vezes seguidas, 53 de 53. A falha não se repetiu; a causa provável é uma conexão passageira com o Neon. Daí em diante, todo commit conferiu o código de saída.
+- **Vercel Blob por OIDC:** ao criar os stores, a Vercel passou a ligá-los por OIDC (`BLOB_STORE_ID` e `BLOB_WEBHOOK_PUBLIC_KEY`, sem `BLOB_READ_WRITE_TOKEN`). O token de cliente que o upload usava exige o token fixo, então acrescentei o fluxo pré-assinado: a rota `/api/uploads/blob` troca a autorização assinada pelo servidor por uma URL pré-assinada (`handleUploadPresigned` + `issueSignedToken`, que aceitam OIDC). O download e a exclusão usam a credencial que existir. A chave dessa autorização passou a derivar do segredo da sessão, porque na Vercel o pedido e a rota podem rodar em instâncias diferentes.
 
 **Pendências:**
 - **Dependências com vulnerabilidades conhecidas, anteriores à Fase 2:** o `npm audit` aponta `next` (crítica, versão 16.2.6), `zod`, `postcss`, `sharp`, `nanoid` e outras. Recomendo atualizar numa mudança própria, com teste completo, porque inclui uma versão nova do Next. O `nodemailer` da Fase 2 foi fixado na 10.1.7, que corrige as falhas das versões anteriores.
@@ -202,7 +204,7 @@ Na ordem. Nada disso foi feito por mim: são contas e configurações que só vo
    - `docentia-arquivos`, ligado **só ao ambiente Production**;
    - `docentia-arquivos-preview`, ligado **só ao ambiente Preview**.
 3. Em cada um, escolha acesso **Private** e a região mais próxima de São Paulo que estiver disponível.
-4. Ao ligar o store ao projeto, a Vercel cria a variável `BLOB_READ_WRITE_TOKEN` no ambiente escolhido. Não é preciso copiar nada.
+4. Ao ligar o store ao projeto, a Vercel cria as variáveis `BLOB_STORE_ID` e `BLOB_WEBHOOK_PUBLIC_KEY` no ambiente escolhido (autenticação por OIDC). Com "System Environment Variables" habilitado no projeto, o token OIDC de curta duração chega em cada requisição. Não é preciso copiar nada. Se o store também criar `BLOB_READ_WRITE_TOKEN`, o app usa esse token fixo no lugar do OIDC; as duas formas funcionam.
 
 ### Passo 2. Variáveis na Vercel
 
@@ -211,7 +213,7 @@ Em **Settings → Environment Variables**, marque as que têm senha como **Sensi
 | Variável | Preview | Production |
 | --- | --- | --- |
 | `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `MAIL_FROM` | Opcional (a mesma conta serve; sem elas, o e-mail fica desativado com aviso) | Sim |
-| `BLOB_READ_WRITE_TOKEN` | Criada pelo store de Preview | Criada pelo store de Production |
+| `BLOB_STORE_ID`, `BLOB_WEBHOOK_PUBLIC_KEY` (OIDC) | Criadas pelo store de Preview | Criadas pelo store de Production |
 | `DATABASE_APP_URL` | Sim: o valor de `DATABASE_APP_URL` do seu `.env.local` (papel `app_login` da branch dev) | Só no passo 4 |
 | `APP_URL` | Não (o endereço do deploy é usado) | Já existe (`https://app-docentia.vercel.app`) |
 

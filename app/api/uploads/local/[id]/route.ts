@@ -6,7 +6,7 @@ import { storageMode, verifyLocalUpload, writeLocalUpload } from "@/server/stora
 export async function PUT(req: Request, { params }: { params: Promise<{ id: string }> }) {
   if (storageMode() !== "local") return new Response(null, { status: 404 });
   const { id } = await params;
-  const claims = verifyLocalUpload(new URL(req.url).searchParams.get("t") ?? "", id);
+  const claims = await verifyLocalUpload(new URL(req.url).searchParams.get("t") ?? "", id);
   if (!claims) return Response.json({ error: "Autorização de envio inválida ou vencida." }, { status: 403 });
   if ((req.headers.get("content-type") ?? "").split(";")[0].trim() !== claims.ct) {
     return Response.json({ error: "Tipo de arquivo diferente do autorizado." }, { status: 415 });

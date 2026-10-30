@@ -40,7 +40,7 @@ describe("arquivos", { skip: SKIP }, () => {
     if ("error" in grant) return grant;
     assert.equal(grant.ticket.kind, "local");
     const t = new URL(`http://x${grant.ticket.kind === "local" ? grant.ticket.url : ""}`).searchParams.get("t")!;
-    const claims = storage.verifyLocalUpload(t, grant.fileId);
+    const claims = await storage.verifyLocalUpload(t, grant.fileId);
     assert.ok(claims, "token local válido");
     const body = new Blob([new Uint8Array(bytes)]).stream();
     const written = await storage.writeLocalUpload(claims, body);
