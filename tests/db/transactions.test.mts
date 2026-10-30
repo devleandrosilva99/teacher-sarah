@@ -131,7 +131,7 @@ describe("transações", { skip: SKIP }, () => {
         id: crypto.randomUUID(), teacherId: B.teacher.id, studentId: B.student.id, classId: "", startsAt: new Date().toISOString(),
         durationMin: 60, meetingUrl: "", topic: "", notes: "", vocabulary: [], attendance: {}, status: "scheduled", seriesId: "", createdAt: new Date().toISOString(),
       });
-      assert.equal(await flows.deleteStudentTx(r, B.student.id), true);
+      assert.deepEqual(await flows.deleteStudentTx(r, B.student.id), { storageKeys: [] });
     });
     const id = B.student.id;
     for (const [table, col] of [["students", "id"], ["submissions", "student_id"], ["assignment_students", "student_id"], ["invitations", "student_id"], ["student_levels", "student_id"], ["lessons", "student_id"]]) {

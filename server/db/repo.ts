@@ -5,14 +5,20 @@ import type {
   Activity,
   AppNotification,
   Assignment,
+  AssignmentSummary,
+  AuthTokenPurpose,
+  StoredFile,
   ClassGroup,
   Invitation,
   Lesson,
   Passage,
   Question,
+  QuestionFilters,
+  QuestionListItem,
   Student,
   Subject,
   Submission,
+  SubmissionSummary,
   Teacher,
   User,
 } from "@/lib/types";
@@ -43,6 +49,8 @@ const toUser = (r: Row): User => ({
   name: r.name,
   blocked: r.blocked,
   createdAt: r.created_at,
+  emailVerifiedAt: str(r.email_verified_at),
+  sessionVersion: r.session_version ?? 1,
 });
 
 const toTeacher = (r: Row): Teacher => ({
@@ -108,6 +116,7 @@ const toClass = (r: Row): ClassGroup => ({
   level: str(r.level_code),
   description: r.description,
   studentIds: r.student_ids ?? [],
+  archivedAt: str(r.archived_at),
   createdAt: r.created_at,
 });
 
@@ -147,6 +156,20 @@ const toQuestion = (r: Row): Question => ({
   updatedAt: r.updated_at,
 });
 
+const toQuestionListItem = (r: Row): QuestionListItem => ({
+  id: r.id,
+  subjectId: r.subject_id,
+  type: r.type,
+  prompt: r.prompt,
+  passageId: str(r.passage_id),
+  level: str(r.level_code),
+  skill: r.skill_key,
+  tags: r.tags,
+  points: r.points,
+  status: r.status,
+  updatedAt: r.updated_at,
+});
+
 const toActivity = (r: Row): Activity => ({
   id: r.id,
   teacherId: r.teacher_id,
@@ -183,6 +206,11 @@ const toAssignment = (r: Row): Assignment => ({
   createdAt: r.created_at,
 });
 
+const toAssignmentSummary = (r: Row): AssignmentSummary => {
+  const { questions: _q, passages: _p, ...rest } = toAssignment(r);
+  return { ...rest, questionCount: r.question_count, totalPoints: r.total_points };
+};
+
 const toSubmission = (r: Row): Submission => ({
   id: r.id,
   teacherId: r.teacher_id,
@@ -198,6 +226,27 @@ const toSubmission = (r: Row): Submission => ({
   score: r.score,
   maxScore: r.max_score,
   generalFeedback: r.general_feedback,
+});
+
+const toSubmissionSummary = (r: Row): SubmissionSummary => {
+  const { responses: _r, answers: _a, ...rest } = toSubmission(r);
+  return rest;
+};
+
+const toFile = (r: Row): StoredFile => ({
+  id: r.id,
+  teacherId: r.teacher_id,
+  uploadedBy: r.uploaded_by,
+  purpose: r.purpose,
+  studentId: str(r.student_id),
+  submissionId: str(r.submission_id),
+  questionId: str(r.question_id),
+  storageKey: r.storage_key,
+  originalName: r.original_name,
+  contentType: r.content_type,
+  sizeBytes: Number(r.size_bytes),
+  status: r.status,
+  createdAt: r.created_at,
 });
 
 const toLesson = (r: Row): Lesson => ({
@@ -258,6 +307,19 @@ const ASSIGNMENT_SELECT = `
     (SELECT coalesce(array_agg(s.student_id::text), '{}') FROM assignment_students s WHERE s.assignment_id = a.id) AS student_ids
   FROM assignments a`;
 
+// Sem o snapshot (JSONB com as questões e os textos): para listas e resumos.
+const ASSIGNMENT_SUMMARY_SELECT = `
+  SELECT a.id, a.teacher_id, a.activity_id, a.subject_id, a.class_id, a.title, a.instructions, a.release_at, a.due_at,
+    a.time_limit_min, a.max_attempts, a.shuffle, a.show_answers, a.created_at,
+    jsonb_array_length(coalesce(a.snapshot->'questions', '[]')) AS question_count,
+    (SELECT coalesce(sum((q->>'activityPoints')::numeric), 0) FROM jsonb_array_elements(coalesce(a.snapshot->'questions', '[]')) q) AS total_points,
+    (SELECT coalesce(array_agg(s.student_id::text), '{}') FROM assignment_students s WHERE s.assignment_id = a.id) AS student_ids
+  FROM assignments a`;
+
+const SUBMISSION_SUMMARY_SELECT = `
+  SELECT id, teacher_id, assignment_id, student_id, attempt, started_at, submitted_at, late, status, score, max_score, general_feedback
+  FROM submissions`;
+
 const LESSON_SELECT = `
   SELECT l.*,
     (SELECT coalesce(json_object_agg(t.student_id, t.status), '{}') FROM lesson_attendance t WHERE t.lesson_id = l.id) AS attendance
@@ -284,11 +346,24 @@ export function makeRepo(db: Db) {
       },
       async create(u: User) {
         await db.query(
-          `INSERT INTO users (id, email, password_hash, role, name, blocked, created_at)
-           VALUES ($1, lower($2), $3, $4, $5, $6, $7)`,
-          [u.id, u.email, u.passwordHash, u.role, u.name, !!u.blocked, u.createdAt]
+          `INSERT INTO users (id, email, password_hash, role, name, blocked, created_at, email_verified_at)
+           VALUES ($1, lower($2), $3, $4, $5, $6, $7, $8)`,
+          [u.id, u.email, u.passwordHash, u.role, u.name, !!u.blocked, u.createdAt, nn(u.emailVerifiedAt)]
         );
-        return u;
+        return { ...u, emailVerifiedAt: u.emailVerifiedAt ?? "", sessionVersion: 1 };
+      },
+      /** Troca a senha e derruba as outras sessões (nova versão). Devolve a conta atualizada. */
+      async setPassword(id: string, passwordHash: string, opts: { verifyEmail?: boolean } = {}) {
+        const r = await db.one(
+          `UPDATE users SET password_hash = $2, session_version = session_version + 1,
+             email_verified_at = CASE WHEN $3 THEN coalesce(email_verified_at, now()) ELSE email_verified_at END
+           WHERE id = $1 RETURNING *`,
+          [id, passwordHash, !!opts.verifyEmail]
+        );
+        return r ? toUser(r) : null;
+      },
+      async markEmailVerified(id: string) {
+        await db.query(`UPDATE users SET email_verified_at = coalesce(email_verified_at, now()) WHERE id = $1`, [id]);
       },
       async put(u: User) {
         await db.query(`UPDATE users SET email = lower($2), password_hash = $3, name = $4, blocked = $5 WHERE id = $1`, [
@@ -454,16 +529,25 @@ export function makeRepo(db: Db) {
       },
       async put(c: ClassGroup) {
         await db.query(
-          `INSERT INTO classes (id, teacher_id, subject_id, name, level_code, description, created_at)
-           VALUES ($1, $2, $3, $4, $5, $6, $7)
-           ON CONFLICT (id) DO UPDATE SET subject_id = $3, name = $4, level_code = $5, description = $6`,
-          [c.id, c.teacherId, c.subjectId, c.name, nn(c.level), c.description, c.createdAt]
+          `INSERT INTO classes (id, teacher_id, subject_id, name, level_code, description, archived_at, created_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+           ON CONFLICT (id) DO UPDATE SET subject_id = $3, name = $4, level_code = $5, description = $6, archived_at = $7`,
+          [c.id, c.teacherId, c.subjectId, c.name, nn(c.level), c.description, nn(c.archivedAt), c.createdAt]
         );
         await db.query(`DELETE FROM class_members WHERE class_id = $1`, [c.id]);
         for (const sid of c.studentIds) {
           await db.query(`INSERT INTO class_members (teacher_id, class_id, student_id) VALUES ($1, $2, $3)`, [c.teacherId, c.id, sid]);
         }
         return c;
+      },
+      async setArchived(id: string, archived: boolean) {
+        if (!isUuid(id)) return;
+        await db.query(`UPDATE classes SET archived_at = CASE WHEN $2 THEN coalesce(archived_at, now()) ELSE NULL END WHERE id = $1`, [id, archived]);
+      },
+      /** Quantas aulas da turma já foram realizadas (impedem a exclusão definitiva). */
+      async doneLessonCount(id: string) {
+        if (!isUuid(id)) return 0;
+        return (await db.one<{ n: number }>(`SELECT count(*)::int AS n FROM lessons WHERE class_id = $1 AND status = 'done'`, [id]))?.n ?? 0;
       },
       async remove(id: string) {
         if (!isUuid(id)) return;
@@ -474,6 +558,9 @@ export function makeRepo(db: Db) {
     passages: {
       async all() {
         return (await db.query(`SELECT * FROM passages ORDER BY updated_at DESC`)).map(toPassage);
+      },
+      async titles() {
+        return db.query<{ id: string; title: string }>(`SELECT id, title FROM passages`);
       },
       async get(id: string) {
         if (!isUuid(id)) return null;
@@ -522,12 +609,67 @@ export function makeRepo(db: Db) {
         return q;
       },
       /** Desvincula as questões de um texto (o texto vai ser excluído). */
+      async exists() {
+        return !!(await db.one(`SELECT 1 FROM questions LIMIT 1`));
+      },
+      /** Busca do banco de questões, filtrada no banco e sem as colunas grandes. */
+      async search(f: QuestionFilters = {}) {
+        const conds: string[] = [];
+        const params: unknown[] = [];
+        const p = (v: unknown) => `$${params.push(v)}`;
+        if (f.subjectId) {
+          if (!isUuid(f.subjectId)) return [];
+          conds.push(`subject_id = ${p(f.subjectId)}`);
+        }
+        if (f.type) conds.push(`type = ${p(f.type)}`);
+        if (f.skill) conds.push(`skill_key = ${p(f.skill)}`);
+        if (f.level) conds.push(`level_code = ${p(f.level)}`);
+        if (f.tag) conds.push(`tags @> ARRAY[${p(f.tag)}]::text[]`);
+        if (!f.status || f.status === "active") conds.push(`status <> 'archived'`);
+        else conds.push(`status = ${p(f.status)}`);
+        if (f.text) {
+          const t = p(f.text.toLowerCase());
+          conds.push(`(position(${t} in lower(prompt)) > 0 OR EXISTS (SELECT 1 FROM unnest(tags) tg WHERE position(${t} in lower(tg)) > 0))`);
+        }
+        const rows = await db.query(
+          `SELECT id, subject_id, type, prompt, passage_id, level_code, skill_key, tags, points, status, updated_at
+             FROM questions ${conds.length ? `WHERE ${conds.join(" AND ")}` : ""}
+            ORDER BY updated_at DESC LIMIT ${p(f.limit ?? 200)}`,
+          params
+        );
+        return rows.map(toQuestionListItem);
+      },
+      /** Questões para listas (sem conteúdo nem gabarito), pelos ids. */
+      async listByIds(ids: string[]) {
+        const valid = ids.filter(isUuid);
+        if (!valid.length) return [];
+        const rows = await db.query(
+          `SELECT id, subject_id, type, prompt, passage_id, level_code, skill_key, tags, points, status, updated_at
+             FROM questions WHERE id = ANY($1::uuid[])`,
+          [valid]
+        );
+        return rows.map(toQuestionListItem);
+      },
+      /** Contagem de questões não arquivadas e etiquetas usadas (de uma disciplina ou de todas). */
+      async stats(subjectId?: string) {
+        if (subjectId && !isUuid(subjectId)) return { active: 0, tags: [] as string[] };
+        const r = await db.one<{ active: number; tags: string[] }>(
+          `SELECT (SELECT count(*)::int FROM questions WHERE status <> 'archived' AND ($1::uuid IS NULL OR subject_id = $1)) AS active,
+                  (SELECT coalesce(array_agg(DISTINCT tg ORDER BY tg), '{}') FROM questions, unnest(tags) tg
+                    WHERE $1::uuid IS NULL OR subject_id = $1) AS tags`,
+          [subjectId || null]
+        );
+        return { active: r?.active ?? 0, tags: r?.tags ?? [] };
+      },
       async unlinkPassage(passageId: string) {
         await db.query(`UPDATE questions SET passage_id = NULL, updated_at = now() WHERE passage_id = $1`, [passageId]);
       },
     },
 
     activities: {
+      async exists() {
+        return !!(await db.one(`SELECT 1 FROM activities LIMIT 1`));
+      },
       async all() {
         return (await db.query(`${ACTIVITY_SELECT} ORDER BY a.updated_at DESC`)).map(toActivity);
       },
@@ -582,6 +724,30 @@ export function makeRepo(db: Db) {
         }
         return a;
       },
+      async titles() {
+        return db.query<{ id: string; title: string }>(`SELECT id, title FROM assignments`);
+      },
+      /** Sem a cópia congelada; com studentId, só os envios daquele aluno. */
+      async summaries(opts: { studentId?: string } = {}) {
+        if (opts.studentId !== undefined && !isUuid(opts.studentId)) return [];
+        const where = opts.studentId
+          ? `WHERE EXISTS (SELECT 1 FROM assignment_students s WHERE s.assignment_id = a.id AND s.student_id = $1)`
+          : "";
+        return (await db.query(`${ASSIGNMENT_SUMMARY_SELECT} ${where} ORDER BY a.created_at DESC`, opts.studentId ? [opts.studentId] : [])).map(
+          toAssignmentSummary
+        );
+      },
+      /** Envios completos (com as questões) atribuídos a um aluno: desempenho por habilidade. */
+      async forStudent(studentId: string) {
+        if (!isUuid(studentId)) return [];
+        return (
+          await db.query(
+            `${ASSIGNMENT_SELECT} WHERE EXISTS (SELECT 1 FROM assignment_students s WHERE s.assignment_id = a.id AND s.student_id = $1)
+             ORDER BY a.created_at DESC`,
+            [studentId]
+          )
+        ).map(toAssignment);
+      },
       async setDue(id: string, dueAt: string) {
         await db.query(`UPDATE assignments SET due_at = $2 WHERE id = $1`, [id, nn(dueAt)]);
       },
@@ -594,6 +760,38 @@ export function makeRepo(db: Db) {
     submissions: {
       async all() {
         return (await db.query(`SELECT * FROM submissions ORDER BY started_at`)).map(toSubmission);
+      },
+      /** Tentativas sem as respostas, opcionalmente de um aluno ou de uma situação. */
+      async summaries(opts: { studentId?: string; status?: Submission["status"] } = {}): Promise<SubmissionSummary[]> {
+        if (opts.studentId !== undefined && !isUuid(opts.studentId)) return [];
+        const conds: string[] = [];
+        const params: unknown[] = [];
+        if (opts.studentId) conds.push(`student_id = $${params.push(opts.studentId)}`);
+        if (opts.status) conds.push(`status = $${params.push(opts.status)}`);
+        const where = conds.length ? `WHERE ${conds.join(" AND ")}` : "";
+        return (await db.query(`${SUBMISSION_SUMMARY_SELECT} ${where} ORDER BY started_at`, params)).map(toSubmissionSummary);
+      },
+      /** Tentativas completas de um aluno (com as respostas). */
+      async forStudent(studentId: string) {
+        if (!isUuid(studentId)) return [];
+        return (await db.query(`SELECT * FROM submissions WHERE student_id = $1 ORDER BY started_at`, [studentId])).map(toSubmission);
+      },
+      /**
+       * Fila de correção: entregas esperando nota (com quantas respostas faltam
+       * corrigir) e as últimas corrigidas. Sem as respostas em si.
+       */
+      async gradingQueue(recentLimit = 20) {
+        const open = `(SELECT count(*)::int FROM jsonb_each(answers) e WHERE e.value->'score' = 'null'::jsonb) AS open_count`;
+        const map = (r: Row) => ({ ...toSubmissionSummary(r), openCount: Number(r.open_count) });
+        const pending = await db.query(`${SUBMISSION_SUMMARY_SELECT.replace("FROM submissions", `, ${open} FROM submissions`)} WHERE status = 'submitted' ORDER BY submitted_at`);
+        const recent = await db.query(
+          `${SUBMISSION_SUMMARY_SELECT.replace("FROM submissions", `, ${open} FROM submissions`)} WHERE status = 'graded' ORDER BY submitted_at DESC LIMIT $1`,
+          [recentLimit]
+        );
+        return { pending: pending.map(map), recent: recent.map(map) };
+      },
+      async countByStatus(status: Submission["status"]) {
+        return Number((await db.one<{ n: string }>(`SELECT count(*) AS n FROM submissions WHERE status = $1`, [status]))?.n ?? 0);
       },
       async get(id: string) {
         if (!isUuid(id)) return null;
@@ -623,6 +821,21 @@ export function makeRepo(db: Db) {
     lessons: {
       async all() {
         return (await db.query(`${LESSON_SELECT} ORDER BY l.starts_at`)).map(toLesson);
+      },
+      /** Aulas individuais do aluno e das turmas de que ele faz parte. */
+      async forStudent(studentId: string) {
+        if (!isUuid(studentId)) return [];
+        return (
+          await db.query(
+            `${LESSON_SELECT} WHERE l.student_id = $1 OR l.class_id IN (SELECT m.class_id FROM class_members m WHERE m.student_id = $1)
+             ORDER BY l.starts_at`,
+            [studentId]
+          )
+        ).map(toLesson);
+      },
+      /** Aulas agendadas a partir de "from" (ISO), em ordem. */
+      async upcoming(from: string) {
+        return (await db.query(`${LESSON_SELECT} WHERE l.status = 'scheduled' AND l.starts_at > $1 ORDER BY l.starts_at`, [from])).map(toLesson);
       },
       async get(id: string) {
         if (!isUuid(id)) return null;
@@ -674,24 +887,141 @@ export function makeRepo(db: Db) {
       },
     },
 
-    loginAttempts: {
-      async get(email: string): Promise<{ count: number; first: number }> {
-        const r = await db.one<{ count: number; first_at: string }>(`SELECT * FROM login_attempts WHERE email = $1`, [email]);
-        return r ? { count: r.count, first: new Date(r.first_at).getTime() } : { count: 0, first: 0 };
+    /** Metadados dos arquivos (ver server/storage e a migração 0004). A RLS decide quem vê. */
+    files: {
+      async get(id: string) {
+        if (!isUuid(id)) return null;
+        const r = await db.one(`SELECT * FROM files WHERE id = $1`, [id]);
+        return r ? toFile(r) : null;
       },
-      async set(email: string, v: { count: number; first: number }) {
+      async create(f: Omit<StoredFile, "createdAt" | "status">) {
+        const r = await db.one(
+          `INSERT INTO files (id, teacher_id, uploaded_by, purpose, student_id, submission_id, question_id, storage_key,
+             original_name, content_type, size_bytes, status)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'pending') RETURNING *`,
+          [f.id, f.teacherId, f.uploadedBy, f.purpose, nn(f.studentId), nn(f.submissionId), nn(f.questionId), f.storageKey,
+            f.originalName, f.contentType, f.sizeBytes]
+        );
+        return toFile(r!);
+      },
+      async markReady(id: string, sizeBytes: number, contentType: string) {
+        await db.query(`UPDATE files SET status = 'ready', size_bytes = $2, content_type = $3 WHERE id = $1`, [id, sizeBytes, contentType]);
+      },
+      async remove(id: string) {
+        await db.query(`DELETE FROM files WHERE id = $1`, [id]);
+      },
+      /** Arquivos prontos de uma entrega (opcionalmente de uma questão). */
+      async forSubmission(submissionId: string, questionId?: string) {
+        if (!isUuid(submissionId)) return [];
+        const rows = await db.query(
+          `SELECT * FROM files WHERE submission_id = $1 AND status = 'ready' AND ($2::uuid IS NULL OR question_id = $2)
+            ORDER BY created_at`,
+          [submissionId, questionId && isUuid(questionId) ? questionId : null]
+        );
+        return rows.map(toFile);
+      },
+      async byIds(ids: string[]) {
+        const valid = ids.filter(isUuid);
+        if (!valid.length) return [];
+        return (await db.query(`SELECT * FROM files WHERE id = ANY($1::uuid[])`, [valid])).map(toFile);
+      },
+      async forStudent(studentId: string) {
+        if (!isUuid(studentId)) return [];
+        return (await db.query(`SELECT * FROM files WHERE student_id = $1 ORDER BY created_at`, [studentId])).map(toFile);
+      },
+      /** Uploads que nunca foram confirmados (mais de 24 h): saem do banco; devolve as chaves para apagar. */
+      async takeStalePending(olderThanMs = 24 * 60 * 60_000) {
+        const rows = await db.query<{ storage_key: string }>(
+          `DELETE FROM files WHERE status = 'pending' AND created_at < now() - $1 * interval '1 millisecond' RETURNING storage_key`,
+          [olderThanMs]
+        );
+        return rows.map((x) => x.storage_key);
+      },
+      /** Liga as mídias do professor a um envio (só arquivos prontos de mídia dele). */
+      async linkToAssignment(teacherId: string, assignmentId: string, fileIds: string[]) {
+        const valid = [...new Set(fileIds.filter(isUuid))];
+        if (!valid.length) return 0;
+        const rows = await db.query(
+          `INSERT INTO assignment_files (teacher_id, assignment_id, file_id)
+           SELECT $1, $2, f.id FROM files f
+            WHERE f.id = ANY($3::uuid[]) AND f.teacher_id = $1 AND f.purpose = 'question_media' AND f.status = 'ready'
+           ON CONFLICT DO NOTHING RETURNING file_id`,
+          [teacherId, assignmentId, valid]
+        );
+        return rows.length;
+      },
+      async linkedAssignmentCount(fileId: string) {
+        const r = await db.one<{ n: number }>(`SELECT count(*)::int AS n FROM assignment_files WHERE file_id = $1`, [fileId]);
+        return r?.n ?? 0;
+      },
+    },
+
+    /** Tokens de uso único (só o hash fica no banco). Ver server/auth/tokens.ts. */
+    authTokens: {
+      /** Cria um token novo e invalida os anteriores ainda não usados da mesma finalidade. */
+      async create(userId: string, purpose: AuthTokenPurpose, tokenHash: string, ttlMs: number) {
+        await db.query(`UPDATE auth_tokens SET used_at = now() WHERE user_id = $1 AND purpose = $2 AND used_at IS NULL`, [userId, purpose]);
         await db.query(
-          `INSERT INTO login_attempts (email, count, first_at) VALUES ($1, $2, $3)
-           ON CONFLICT (email) DO UPDATE SET count = $2, first_at = $3`,
-          [email, v.count, new Date(v.first).toISOString()]
+          `INSERT INTO auth_tokens (user_id, purpose, token_hash, expires_at) VALUES ($1, $2, $3, now() + $4 * interval '1 millisecond')`,
+          [userId, purpose, tokenHash, ttlMs]
         );
       },
-      async clear(email: string) {
-        await db.query(`DELETE FROM login_attempts WHERE email = $1`, [email]);
+      /** Dono do token se ele ainda vale (sem gastar). */
+      async peek(tokenHash: string, purpose: AuthTokenPurpose) {
+        const r = await db.one<{ user_id: string }>(
+          `SELECT user_id FROM auth_tokens WHERE token_hash = $1 AND purpose = $2 AND used_at IS NULL AND expires_at > now()`,
+          [tokenHash, purpose]
+        );
+        return r?.user_id ?? null;
+      },
+      /** Gasta o token, de forma atômica: dois usos simultâneos não passam os dois. */
+      async consume(tokenHash: string, purpose: AuthTokenPurpose) {
+        const r = await db.one<{ user_id: string }>(
+          `UPDATE auth_tokens SET used_at = now()
+            WHERE token_hash = $1 AND purpose = $2 AND used_at IS NULL AND expires_at > now()
+          RETURNING user_id`,
+          [tokenHash, purpose]
+        );
+        return r?.user_id ?? null;
+      },
+    },
+
+    /** Limite por janela fixa (login, pedidos de redefinição, reenvios). */
+    rateLimits: {
+      /** Quantas vezes a chave foi contada na janela atual (sem contar esta). */
+      async peek(key: string, windowMs: number) {
+        const r = await db.one<{ count: number }>(
+          `SELECT count FROM rate_limits WHERE key = $1 AND window_start > now() - $2 * interval '1 millisecond'`,
+          [key, windowMs]
+        );
+        return r?.count ?? 0;
+      },
+      /** Conta mais uma e devolve o total na janela (a janela recomeça quando vence). */
+      async hit(key: string, windowMs: number) {
+        const r = await db.one<{ count: number }>(
+          `INSERT INTO rate_limits AS t (key, window_start, count) VALUES ($1, now(), 1)
+           ON CONFLICT (key) DO UPDATE SET
+             count = CASE WHEN t.window_start <= now() - $2 * interval '1 millisecond' THEN 1 ELSE t.count + 1 END,
+             window_start = CASE WHEN t.window_start <= now() - $2 * interval '1 millisecond' THEN now() ELSE t.window_start END
+           RETURNING count`,
+          [key, windowMs]
+        );
+        return r!.count;
+      },
+      async clear(key: string) {
+        await db.query(`DELETE FROM rate_limits WHERE key = $1`, [key]);
       },
     },
 
     meta: {
+      /** Com qual papel o app entrou no banco e se ele teria acesso de dono (painel do admin). */
+      async connection() {
+        return (await db.one<{ login: string; bypass: boolean; owner: boolean }>(
+          `SELECT session_user AS login,
+                  coalesce((SELECT rolbypassrls OR rolsuper FROM pg_roles WHERE rolname = session_user), false) AS bypass,
+                  EXISTS (SELECT 1 FROM pg_tables WHERE schemaname = current_schema() AND tableowner = session_user) AS owner`
+        ))!;
+      },
       /** Segredo das sessões, gerado uma vez e guardado no banco. */
       async secret() {
         const fresh = Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString("base64url");
@@ -765,11 +1095,6 @@ export const notifications = {
   markAllRead: (userId: string) => withScope(null, (r) => r.notifications.markAllRead(userId)),
 };
 
-export const loginAttempts = {
-  get: (email: string) => withScope(null, (r) => r.loginAttempts.get(email)),
-  set: (email: string, v: { count: number; first: number }) => withScope(null, (r) => r.loginAttempts.set(email, v)),
-  clear: (email: string) => withScope(null, (r) => r.loginAttempts.clear(email)),
-};
 
 export const meta = {
   secret: () => withScope(null, (r) => r.meta.secret()),

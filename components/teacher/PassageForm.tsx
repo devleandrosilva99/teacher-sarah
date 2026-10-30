@@ -5,14 +5,16 @@ import { savePassage } from "@/server/actions/questions";
 import { initialState } from "@/server/actions/state";
 import { Button, Card, Field, Input, Notice, Select, Textarea } from "@/components/ui";
 import type { Passage, Subject } from "@/lib/types";
+import MediaUploadButton from "@/components/MediaUploadButton";
 import SubjectPicker from "./SubjectPicker";
 
-export default function PassageForm({ passage, subjects }: { passage?: Passage; subjects: Subject[] }) {
+export default function PassageForm({ passage, subjects, canUpload = false }: { passage?: Passage; subjects: Subject[]; canUpload?: boolean }) {
   const [state, action, pending] = useActionState(savePassage, initialState);
   const [subjectId, setSubjectId] = useState(state.fields?.subjectId ?? passage?.subjectId ?? subjects[0]?.id ?? "");
   const subject = subjects.find((x) => x.id === subjectId);
   const [kind, setKind] = useState(passage?.kind ?? "reading");
   const v = (k: keyof Passage) => state.fields?.[k] ?? (passage ? String(passage[k] ?? "") : "");
+  const [audioUrl, setAudioUrl] = useState(v("audioUrl"));
   // key: remonta o formulário após um erro, para os <select> voltarem ao valor enviado.
   return (
     <form key={JSON.stringify(state.fields ?? {})} action={action} className="flex flex-col gap-4">
@@ -42,8 +44,11 @@ export default function PassageForm({ passage, subjects }: { passage?: Passage; 
             </Select>
           </Field>
           {kind === "listening" && (
-            <Field label="Link do áudio *" hint="Link https de um arquivo .mp3" className="sm:col-span-4">
-              <Input name="audioUrl" maxLength={500} defaultValue={v("audioUrl")} placeholder="https://..." />
+            <Field label="Áudio *" hint={canUpload ? "Envie um arquivo de áudio (até 20 MB) ou cole um link https de .mp3" : "Link https de um arquivo .mp3"} className="sm:col-span-4">
+              <div className="flex gap-2">
+                <Input name="audioUrl" maxLength={500} value={audioUrl} onChange={(e) => setAudioUrl(e.target.value)} placeholder="https://..." />
+                {canUpload && <MediaUploadButton accept="audio/*" onUploaded={setAudioUrl} />}
+              </div>
             </Field>
           )}
           <Field label={kind === "reading" ? "Texto *" : "Transcrição (opcional, o aluno não vê)"} className="sm:col-span-4">

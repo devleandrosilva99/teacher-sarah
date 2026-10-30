@@ -5,6 +5,8 @@
 //  - Response: o que o aluno envia
 // buildQuestion() transforma Source em Content + Key; grade() corrige.
 import type { QuestionType } from "./types";
+// Com extensão: este módulo também roda direto no Node (testes), sem bundler.
+import { FILE_KIND_LIST, SUBMISSION_LIMITS, type FileKind } from "./files.ts";
 
 export const TYPE_LABELS: Record<QuestionType, string> = {
   single_choice: "Múltipla escolha (uma resposta)",
@@ -15,6 +17,7 @@ export const TYPE_LABELS: Record<QuestionType, string> = {
   matching: "Associação",
   ordering: "Ordenar",
   open: "Resposta aberta",
+  file_upload: "Entrega de arquivo",
 };
 
 export const TYPE_SHORT: Record<QuestionType, string> = {
@@ -26,6 +29,7 @@ export const TYPE_SHORT: Record<QuestionType, string> = {
   matching: "Associação",
   ordering: "Ordenar",
   open: "Aberta",
+  file_upload: "Arquivo",
 };
 
 /**
@@ -42,6 +46,7 @@ export const TYPE_SUBJECTS: Record<QuestionType, "all" | string[]> = {
   matching: "all",
   ordering: "all",
   open: "all",
+  file_upload: "all",
 };
 
 export function typeAllowed(type: QuestionType, templateKey: string): boolean {
@@ -68,6 +73,7 @@ export interface Sources {
   matching: { pairs: { left: string; right: string }[]; distractors: string[] };
   ordering: { items: string[]; joiner: "space" | "newline" };
   open: { minWords: number; maxWords: number; rubric: string; modelAnswer: string };
+  file_upload: { maxFiles: number; maxMB: number; accept: FileKind[]; rubric: string };
 }
 
 export interface Contents {
@@ -79,6 +85,7 @@ export interface Contents {
   matching: { left: Option[]; right: Option[] };
   ordering: { items: Option[]; joiner: "space" | "newline" };
   open: { minWords: number; maxWords: number; rubric: string };
+  file_upload: { maxFiles: number; maxMB: number; accept: FileKind[]; rubric: string };
 }
 
 export interface Keys {
@@ -90,6 +97,7 @@ export interface Keys {
   matching: { pairs: Record<string, string> };
   ordering: { order: string[] };
   open: { modelAnswer: string };
+  file_upload: Record<string, never>;
 }
 
 export interface Responses {
@@ -101,6 +109,8 @@ export interface Responses {
   matching: { pairs?: Record<string, string> };
   ordering: { order?: string[] };
   open: { text?: string };
+  /** Arquivos já enviados e confirmados (o servidor confere que são do aluno e desta entrega). */
+  file_upload: { fileIds?: string[] };
 }
 
 export function emptySource(type: QuestionType): Sources[QuestionType] {
@@ -121,6 +131,8 @@ export function emptySource(type: QuestionType): Sources[QuestionType] {
       return { items: ["", "", ""], joiner: "space" };
     case "open":
       return { minWords: 0, maxWords: 0, rubric: "", modelAnswer: "" };
+    case "file_upload":
+      return { maxFiles: 1, maxMB: 10, accept: ["photo", "pdf"], rubric: "" };
   }
 }
 
@@ -343,6 +355,18 @@ export function buildQuestion(type: QuestionType, raw: unknown): BuildResult {
         answerKey: { modelAnswer },
       };
     }
+    case "file_upload": {
+      const s = raw as Sources["file_upload"];
+      const maxFiles = Math.floor(Number(s.maxFiles) || 0);
+      const maxMB = Math.floor(Number(s.maxMB) || 0);
+      if (maxFiles < 1 || maxFiles > SUBMISSION_LIMITS.maxFiles) return fail(`O número de arquivos vai de 1 a ${SUBMISSION_LIMITS.maxFiles}.`);
+      if (maxMB < 1 || maxMB > SUBMISSION_LIMITS.maxMB) return fail(`O tamanho máximo vai de 1 a ${SUBMISSION_LIMITS.maxMB} MB.`);
+      const accept = FILE_KIND_LIST.filter((k) => (s.accept ?? []).includes(k));
+      if (!accept.length) return fail("Escolha pelo menos um tipo de arquivo aceito.");
+      const rubric = String(s.rubric ?? "").trim();
+      const content = { maxFiles, maxMB, accept, rubric };
+      return { ok: true, source: content, content, answerKey: {} };
+    }
   }
 }
 
@@ -437,6 +461,11 @@ export function grade(type: QuestionType, content: unknown, key: unknown, respon
       if (!text) return { score: 0, correct: false, needsManual: false };
       return { score: null, correct: null, needsManual: true };
     }
+    case "file_upload": {
+      const ids = (r as Responses["file_upload"]).fileIds;
+      if (!Array.isArray(ids) || ids.length === 0) return { score: 0, correct: false, needsManual: false };
+      return { score: null, correct: null, needsManual: true };
+    }
   }
   void content;
 }
@@ -459,6 +488,8 @@ export function isAnswered(type: QuestionType, response: unknown): boolean {
       return Array.isArray(r.order) && r.order.length > 0;
     case "open":
       return String(r.text ?? "").trim().length > 0;
+    case "file_upload":
+      return Array.isArray(r.fileIds) && r.fileIds.length > 0;
   }
 }
 
@@ -506,6 +537,8 @@ export function describeKey(type: QuestionType, content: unknown, key: unknown):
     }
     case "open":
       return (key as Keys["open"]).modelAnswer || "Correção manual";
+    case "file_upload":
+      return "Correção manual";
   }
 }
 

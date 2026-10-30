@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { requireStudent } from "@/server/auth/session";
-import { assignments, submissions } from "@/server/db/repo";
+import { assignments, submissions, withScope } from "@/server/db/repo";
+import { fileInfoMap } from "@/lib/files";
 import { canSeeAnswers, rowFor } from "@/server/services/assignments";
 import AnswerReview from "@/components/questions/AnswerReview";
 import { ButtonLink, Card, Notice, PageHeader } from "@/components/ui";
@@ -24,6 +25,7 @@ export default async function ResultadoPage({ params, searchParams }: { params: 
   const showKey = canSeeAnswers(row);
   const pct = percent(sub.score, sub.maxScore);
   const pById = new Map(a.passages.map((p) => [p.id, p]));
+  const files = fileInfoMap(await withScope(scope, (r) => r.files.forSubmission(sub.id)));
 
   return (
     <>
@@ -65,7 +67,7 @@ export default async function ResultadoPage({ params, searchParams }: { params: 
       )}
       <div className="flex flex-col gap-3">
         {a.questions.map((q, i) => (
-          <AnswerReview key={q.id} index={i + 1} question={q} answer={sub.answers[q.id]} showKey={showKey} passage={q.passageId ? pById.get(q.passageId) : undefined} />
+          <AnswerReview key={q.id} index={i + 1} question={q} answer={sub.answers[q.id]} showKey={showKey} passage={q.passageId ? pById.get(q.passageId) : undefined} files={files} />
         ))}
       </div>
     </>

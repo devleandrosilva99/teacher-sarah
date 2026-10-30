@@ -33,8 +33,8 @@ export default async function EntrarPage({ searchParams }: { searchParams: Promi
         </div>
       )}
       <LoginForm next={next} />
-      <p className="mt-4 text-xs text-ink-3">
-        Esqueceu a senha? Alunos: peça ao seu professor um novo link de acesso. Professores: fale com o suporte.
+      <p className="mt-4 text-sm">
+        <Link href="/recuperar-senha" className="font-medium text-brand">Esqueci minha senha</Link>
       </p>
     </AuthShell>
   );

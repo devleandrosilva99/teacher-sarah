@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { requireTeacher } from "@/server/auth/session";
-import { assignments, students, submissions } from "@/server/db/repo";
+import { withScope } from "@/server/db/repo";
 import { Avatar, Badge, ButtonLink, EmptyState, Notice, PageHeader, scoreVariant } from "@/components/ui";
 import { formatDateTime, percent } from "@/lib/format";
 
@@ -9,19 +9,19 @@ export const metadata = { title: "Correção" };
 export default async function CorrecaoPage({ searchParams }: { searchParams: Promise<{ fim?: string }> }) {
   const { teacher } = await requireTeacher();
   const { fim } = await searchParams;
-  const [subs, asgs, studs] = await Promise.all([submissions.all(teacher.id), assignments.all(teacher.id), students.all(teacher.id)]);
+  const { queue, asgs, studs } = await withScope(teacher.id, async (r) => ({
+    queue: await r.submissions.gradingQueue(20),
+    asgs: await r.assignments.titles(),
+    studs: await r.students.all(),
+  }));
   const aById = new Map(asgs.map((a) => [a.id, a]));
   const sById = new Map(studs.map((s) => [s.id, s]));
-  const pending = subs.filter((s) => s.status === "submitted").sort((a, b) => a.submittedAt.localeCompare(b.submittedAt));
-  const recent = subs
-    .filter((s) => s.status === "graded")
-    .sort((a, b) => b.submittedAt.localeCompare(a.submittedAt))
-    .slice(0, 20);
+  const { pending, recent } = queue;
 
-  const row = (s: (typeof subs)[number]) => {
+  const row = (s: (typeof pending)[number]) => {
     const st = sById.get(s.studentId);
     const a = aById.get(s.assignmentId);
-    const open = a ? a.questions.filter((q) => s.answers[q.id]?.score === null).length : 0;
+    const open = s.openCount;
     return (
       <Link key={s.id} href={`/professor/correcao/${s.id}`} className="flex flex-wrap items-center gap-3 border-b border-line px-4 py-3 last:border-b-0 hover:bg-page">
         <Avatar name={st?.name ?? "?"} color={st?.avatarColor} size={32} />

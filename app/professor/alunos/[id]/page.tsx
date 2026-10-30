@@ -1,13 +1,16 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { Archive, Download, Pencil, RotateCcw } from "lucide-react";
+import { Archive, Download, Mail, Pencil, RotateCcw } from "lucide-react";
 import { requireTeacher } from "@/server/auth/session";
-import { assignments, classes, invitations, lessons, students, subjects, submissions } from "@/server/db/repo";
+import { withScope } from "@/server/db/repo";
 import { rowFor, summarize } from "@/server/services/assignments";
-import { createInvite, deleteStudent, setStudentStatus } from "@/server/actions/students";
+import { createInvite, deleteStudent, emailInvite, setStudentStatus } from "@/server/actions/students";
+import { MAIL_UNAVAILABLE, mailAvailable } from "@/server/mail";
 import { baseUrl } from "@/server/url";
 import { Avatar, Badge, Button, ButtonLink, Card, EmptyState, Notice, PageHeader, Stat, scoreVariant } from "@/components/ui";
 import CopyField from "@/components/CopyField";
+import WhatsAppButton from "@/components/WhatsAppButton";
+import { inviteMessage } from "@/lib/whatsapp";
 import ConfirmButton from "@/components/ConfirmButton";
 import { ScoreHistory, SkillBars } from "@/components/charts";
 import { ASSIGNMENT_STATUS } from "@/lib/labels";
@@ -18,23 +21,31 @@ export default async function AlunoDetalhePage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ novo?: string }>;
+  searchParams: Promise<{ novo?: string; email?: string }>;
 }) {
   const { teacher } = await requireTeacher();
   const { id } = await params;
-  const { novo } = await searchParams;
-  const student = await students.get(teacher.id, id);
-  if (!student) notFound();
-
-  const [asgs, subs, allLessons, allClasses, invite, base, subjectList] = await Promise.all([
-    assignments.all(teacher.id),
-    submissions.all(teacher.id),
-    lessons.all(teacher.id),
-    classes.all(teacher.id),
-    invitations.validForStudent(id),
+  const { novo, email: emailResult } = await searchParams;
+  // Uma transação, só com os dados deste aluno. Os envios vêm completos
+  // (com as questões) porque o desempenho por habilidade precisa delas.
+  const [data, base] = await Promise.all([
+    withScope(teacher.id, async (r) => {
+      const student = await r.students.get(id);
+      if (!student) return null;
+      return {
+        student,
+        asgs: await r.assignments.forStudent(id),
+        subs: await r.submissions.forStudent(id),
+        myLessons: await r.lessons.forStudent(id),
+        allClasses: await r.classes.all(),
+        invite: await r.invitations.validForStudent(id),
+        subjectList: await r.subjects.all(),
+      };
+    }),
     baseUrl(),
-    subjects.all(teacher.id),
   ]);
+  if (!data) notFound();
+  const { student, asgs, subs, allClasses, invite, subjectList } = data;
   const levelText = subjectList
     .filter((x) => student.levels[x.id])
     .map((x) => {
@@ -44,14 +55,11 @@ export default async function AlunoDetalhePage({
     })
     .join(" · ");
   const rows = asgs
-    .filter((a) => a.studentIds.includes(id))
     .map((a) => rowFor(a, id, subs))
     .sort((a, b) => b.assignment.createdAt.localeCompare(a.assignment.createdAt));
   const sum = summarize(rows);
   const myClasses = allClasses.filter((c) => c.studentIds.includes(id));
-  const myLessons = allLessons
-    .filter((l) => l.studentId === id || (l.classId && myClasses.some((c) => c.id === l.classId)))
-    .sort((a, b) => b.startsAt.localeCompare(a.startsAt));
+  const myLessons = [...data.myLessons].sort((a, b) => b.startsAt.localeCompare(a.startsAt));
   const archived = student.status === "archived";
 
   return (
@@ -101,11 +109,32 @@ export default async function AlunoDetalhePage({
             </p>
           )}
           {invite && <div className="mt-3"><CopyField value={`${base}/convite/${invite.token}`} /></div>}
-          <form action={createInvite.bind(null, id)} className="mt-3">
-            <Button variant="secondary" type="submit">
-              {invite ? "Gerar outro link" : student.userId ? "Gerar link para nova senha" : "Gerar link de acesso"}
-            </Button>
-          </form>
+          {emailResult && (
+            <div className="mt-3">
+              {emailResult === "enviado" ? (
+                <Notice variant="success">Link enviado para {student.email}.</Notice>
+              ) : (
+                <Notice variant="danger">{emailResult === "indisponivel" ? MAIL_UNAVAILABLE : "Não foi possível enviar o e-mail agora. Copie o link e envie por outro meio."}</Notice>
+              )}
+            </div>
+          )}
+          <div className="mt-3 flex flex-wrap gap-2">
+            <form action={createInvite.bind(null, id)}>
+              <Button variant="secondary" type="submit">
+                {invite ? "Gerar outro link" : student.userId ? "Gerar link para nova senha" : "Gerar link de acesso"}
+              </Button>
+            </form>
+            {invite && (
+              <WhatsAppButton phone={student.phone} text={inviteMessage(student.name, teacher.name, `${base}/convite/${invite.token}`, invite.expiresAt)} />
+            )}
+            {(invite || !student.userId) && mailAvailable() && (
+              <form action={emailInvite.bind(null, id)}>
+                <Button variant="secondary" type="submit">
+                  <Mail size={15} /> Enviar por e-mail
+                </Button>
+              </form>
+            )}
+          </div>
         </Card>
       )}
 

@@ -99,3 +99,17 @@ test("validação do editor", () => {
   assert.equal(buildQuestion("fill_text", { template: "vazia [[]]", caseSensitive: false }).ok, false);
   assert.equal(buildQuestion("matching", { pairs: [{ left: "a", right: "" }, { left: "b", right: "c" }], distractors: [] }).ok, false);
 });
+
+test("entrega de arquivo: validação do editor e correção manual", () => {
+  assert.equal(buildQuestion("file_upload", { maxFiles: 0, maxMB: 5, accept: ["pdf"], rubric: "" }).ok, false);
+  assert.equal(buildQuestion("file_upload", { maxFiles: 6, maxMB: 5, accept: ["pdf"], rubric: "" }).ok, false);
+  assert.equal(buildQuestion("file_upload", { maxFiles: 1, maxMB: 21, accept: ["pdf"], rubric: "" }).ok, false);
+  assert.equal(buildQuestion("file_upload", { maxFiles: 1, maxMB: 5, accept: ["exe"], rubric: "" }).ok, false);
+  const b = buildQuestion("file_upload", { maxFiles: 2, maxMB: 5, accept: ["pdf", "photo", "exe"], rubric: " capriche " });
+  assert.ok(b.ok);
+  assert.deepEqual(b.content, { maxFiles: 2, maxMB: 5, accept: ["photo", "pdf"], rubric: "capriche" });
+  assert.deepEqual(b.answerKey, {});
+  assert.deepEqual(grade("file_upload", b.content, b.answerKey, {}, 5), { score: 0, correct: false, needsManual: false });
+  assert.deepEqual(grade("file_upload", b.content, b.answerKey, { fileIds: [] }, 5), { score: 0, correct: false, needsManual: false });
+  assert.deepEqual(grade("file_upload", b.content, b.answerKey, { fileIds: ["a"] }, 5), { score: null, correct: null, needsManual: true });
+});

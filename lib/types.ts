@@ -12,6 +12,31 @@ export interface User {
   name: string;
   blocked: boolean;
   createdAt: string;
+  /** "" = e-mail ainda não confirmado. */
+  emailVerifiedAt?: string;
+  /** Incrementa ao trocar/redefinir a senha; sessões de versões antigas caem. */
+  sessionVersion?: number;
+}
+
+export type AuthTokenPurpose = "password_reset" | "email_verify";
+
+export type FilePurpose = "question_media" | "submission";
+
+/** Metadados de um arquivo enviado (o conteúdo fica no armazenamento). */
+export interface StoredFile {
+  id: string;
+  teacherId: string;
+  uploadedBy: "teacher" | "student";
+  purpose: FilePurpose;
+  studentId: string;
+  submissionId: string;
+  questionId: string;
+  storageKey: string;
+  originalName: string;
+  contentType: string;
+  sizeBytes: number;
+  status: "pending" | "ready";
+  createdAt: string;
 }
 
 export interface Teacher {
@@ -83,6 +108,8 @@ export interface ClassGroup {
   level: Level | "";
   description: string;
   studentIds: string[];
+  /** Turma arquivada: some das listas e seletores, mas mantém o histórico. */
+  archivedAt: string;
   createdAt: string;
 }
 
@@ -109,6 +136,7 @@ export const QUESTION_TYPES = [
   "matching",
   "ordering",
   "open",
+  "file_upload",
 ] as const;
 export type QuestionType = (typeof QUESTION_TYPES)[number];
 
@@ -201,6 +229,27 @@ export interface Assignment {
   createdAt: string;
 }
 
+/** Questão para listas: sem o estado do editor, o conteúdo e o gabarito. */
+export type QuestionListItem = Pick<
+  Question,
+  "id" | "subjectId" | "type" | "prompt" | "passageId" | "level" | "skill" | "tags" | "points" | "status" | "updatedAt"
+>;
+
+export interface QuestionFilters {
+  subjectId?: string;
+  type?: string;
+  skill?: string;
+  level?: string;
+  tag?: string;
+  /** "active" = publicadas e rascunhos. */
+  status?: "active" | "published" | "draft" | "archived";
+  text?: string;
+  limit?: number;
+}
+
+/** Envio sem a cópia congelada (listas e resumos): só o número de questões e os pontos. */
+export type AssignmentSummary = Omit<Assignment, "questions" | "passages"> & { questionCount: number; totalPoints: number };
+
 export interface AnswerRecord {
   response: unknown;
   score: number | null;
@@ -228,6 +277,9 @@ export interface Submission {
   maxScore: number;
   generalFeedback: string;
 }
+
+/** Tentativa sem as respostas (listas, contagens e notas). */
+export type SubmissionSummary = Omit<Submission, "responses" | "answers">;
 
 export interface Lesson {
   id: string;

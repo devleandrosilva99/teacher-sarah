@@ -11,12 +11,15 @@
     "db:migrate": "node scripts/migrate.mjs",
     "db:reset": "node scripts/migrate.mjs --reset && npm run db:seed",
     "db:seed": "node --conditions=react-server --import tsx scripts/seed.mts",
-    "db:backup": "node scripts/backup.mjs"
+    "db:backup": "node scripts/backup.mjs",
+    "db:app-login": "node scripts/app-login.mjs"
   },
   "dependencies": {
+    "@vercel/blob": "2.8.2",
     "@vercel/functions": "^3.10.3",
     "lucide-react": "^1.16.0",
     "next": "16.2.6",
+    "nodemailer": "10.1.7",
     "pg": "^8.23.1",
     "react": "19.2.4",
     "react-dom": "19.2.4",
@@ -26,6 +29,7 @@
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
+    "@types/nodemailer": "^8.0.2",
     "@types/pg": "^8.23.1",
     "@types/react": "^19",
     "@types/react-dom": "^19",

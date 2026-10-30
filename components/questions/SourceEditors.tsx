@@ -3,6 +3,7 @@
 import { Plus, Trash2 } from "lucide-react";
 import { parseTemplate, type Sources } from "@/lib/question-types";
 import type { QuestionType } from "@/lib/types";
+import { FILE_KIND_LABELS, FILE_KIND_LIST, SUBMISSION_LIMITS } from "@/lib/files";
 import { Button, Field, Input, Textarea } from "@/components/ui";
 
 type AnySource = Sources[QuestionType];
@@ -253,6 +254,37 @@ export default function SourceEditor({
           </Field>
           <Field label="Resposta-modelo (só você vê, e o aluno depois da correção)" className="sm:col-span-2">
             <Textarea value={s.modelAnswer} maxLength={4000} className="min-h-16" onChange={(e) => onChange({ ...s, modelAnswer: e.target.value })} />
+          </Field>
+        </div>
+      );
+    }
+    case "file_upload": {
+      const s = source as Sources["file_upload"];
+      return (
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Field label="Quantos arquivos o aluno pode enviar" hint={`de 1 a ${SUBMISSION_LIMITS.maxFiles}`}>
+            <Input type="number" min={1} max={SUBMISSION_LIMITS.maxFiles} value={s.maxFiles} onChange={(e) => onChange({ ...s, maxFiles: Number(e.target.value) })} />
+          </Field>
+          <Field label="Tamanho máximo de cada arquivo (MB)" hint={`até ${SUBMISSION_LIMITS.maxMB} MB; fotos são reduzidas antes do envio`}>
+            <Input type="number" min={1} max={SUBMISSION_LIMITS.maxMB} value={s.maxMB} onChange={(e) => onChange({ ...s, maxMB: Number(e.target.value) })} />
+          </Field>
+          <fieldset className="sm:col-span-2">
+            <legend className="mb-1 text-sm font-medium">Tipos aceitos</legend>
+            <div className="flex flex-wrap gap-4">
+              {FILE_KIND_LIST.map((k) => (
+                <label key={k} className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={s.accept.includes(k)}
+                    onChange={(e) => onChange({ ...s, accept: e.target.checked ? [...s.accept, k] : s.accept.filter((x) => x !== k) })}
+                  />
+                  {FILE_KIND_LABELS[k]}
+                </label>
+              ))}
+            </div>
+          </fieldset>
+          <Field label="Critérios de correção (o aluno vê)" className="sm:col-span-2">
+            <Textarea value={s.rubric} maxLength={1000} className="min-h-16" onChange={(e) => onChange({ ...s, rubric: e.target.value })} />
           </Field>
         </div>
       );

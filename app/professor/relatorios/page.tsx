@@ -74,7 +74,12 @@ export default async function RelatoriosPage({ searchParams }: { searchParams: P
               {subject && <input type="hidden" name="disciplina" value={subject.id} />}
               <Select name="turma" defaultValue={turma ?? ""} className="w-56">
                 <option value="">Todos os alunos</option>
-                {cls.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                {cls.filter((c) => !c.archivedAt).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                {cls.some((c) => c.archivedAt) && (
+                  <optgroup label="Turmas arquivadas">
+                    {cls.filter((c) => c.archivedAt).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                  </optgroup>
+                )}
               </Select>
               <button className="rounded-lg bg-surface-raised px-3 text-sm font-medium">Ver</button>
             </form>

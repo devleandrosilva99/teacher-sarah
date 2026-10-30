@@ -1,4 +1,5 @@
 import { notFound } from "next/navigation";
+import { uploadsAvailable } from "@/server/storage";
 import { Archive, Copy, RotateCcw } from "lucide-react";
 import { requireTeacher } from "@/server/auth/session";
 import { activities, passages, questions, subjects } from "@/server/db/repo";
@@ -42,7 +43,7 @@ export default async function EditarQuestaoPage({ params }: { params: Promise<{ 
         </div>
       )}
       {archived && <div className="mb-4"><Notice variant="warning">Questão arquivada: não aparece ao montar atividades.</Notice></div>}
-      <QuestionEditor question={question} subjects={await subjects.all(teacher.id)} passages={ps.map((p) => ({ id: p.id, title: p.title, subjectId: p.subjectId }))} />
+      <QuestionEditor canUpload={uploadsAvailable()} question={question} subjects={await subjects.all(teacher.id)} passages={ps.map((p) => ({ id: p.id, title: p.title, subjectId: p.subjectId }))} />
     </>
   );
 }

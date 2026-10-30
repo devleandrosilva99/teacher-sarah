@@ -1,4 +1,5 @@
 import { requireTeacher } from "@/server/auth/session";
+import { uploadsAvailable } from "@/server/storage";
 import { passages, subjects } from "@/server/db/repo";
 import QuestionEditor from "@/components/questions/QuestionEditor";
 import { PageHeader } from "@/components/ui";
@@ -17,7 +18,7 @@ export default async function NovaQuestaoPage({ searchParams }: { searchParams: 
         subtitle={fromPassage ? `Sobre o texto "${fromPassage.title}"` : undefined}
         back={fromPassage ? { href: `/professor/leituras/${fromPassage.id}`, label: fromPassage.title } : { href: "/professor/questoes", label: "Banco de questões" }}
       />
-      <QuestionEditor
+      <QuestionEditor canUpload={uploadsAvailable()}
         subjects={subjectList}
         passages={ps.map((p) => ({ id: p.id, title: p.title, subjectId: p.subjectId }))}
         defaultSubjectId={fromPassage?.subjectId}

@@ -11,7 +11,17 @@ import type { Teacher, User } from "@/lib/types";
  */
 export async function createTeacherAccount(
   r: Repo,
-  data: { teacherId?: string; name: string; email: string; passwordHash: string; slug: string; bio?: string; color?: string }
+  data: {
+    teacherId?: string;
+    name: string;
+    email: string;
+    passwordHash: string;
+    slug: string;
+    bio?: string;
+    color?: string;
+    /** Dados de demonstração já nascem com o e-mail confirmado. */
+    emailVerified?: boolean;
+  }
 ): Promise<{ user: User; teacher: Teacher }> {
   const user: User = {
     id: newId(),
@@ -21,6 +31,8 @@ export async function createTeacherAccount(
     name: data.name,
     blocked: false,
     createdAt: nowIso(),
+    emailVerifiedAt: data.emailVerified ? nowIso() : "",
+    sessionVersion: 1,
   };
   await r.users.create(user);
   const teacher = await r.teachers.save({

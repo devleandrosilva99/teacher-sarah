@@ -1,10 +1,15 @@
 import "server-only";
 import pg from "pg";
 import { attachDatabasePool } from "@vercel/functions";
+import { beginStatement } from "./context-sql";
+
+export { APP_ROLE } from "./context-sql";
 
 // Conexão com o PostgreSQL (Neon).
 //
-// O app usa DATABASE_URL (pooler do Neon, PgBouncer em modo transação). Nesse
+// O app usa DATABASE_APP_URL (papel app_login, sem privilégios de dono; ver
+// scripts/app-login.mjs) ou, sem ela, DATABASE_URL (o dono). As duas pelo
+// pooler do Neon (PgBouncer em modo transação). Nesse
 // modo um SET de sessão se perde entre consultas, então o contexto da RLS é
 // definido com set_config(..., true), que vale só dentro da transação. Por isso
 // todo acesso aos dados passa por withScope(), que abre uma transação.
@@ -48,8 +53,14 @@ export function configureDb(c: Partial<Config>) {
 
 function pool(): pg.Pool {
   if (g.__tsPool) return g.__tsPool;
-  const connectionString = config.connectionString ?? process.env.DATABASE_URL;
+  const connectionString = config.connectionString ?? process.env.DATABASE_APP_URL ?? process.env.DATABASE_URL;
   if (!connectionString) throw new Error("DATABASE_URL não definida (veja .env.example).");
+  if (!config.connectionString && !process.env.DATABASE_APP_URL) {
+    console.warn(
+      "[db] AVISO: o app está conectado como dono do banco (DATABASE_URL). A RLS vale porque cada transação assume app_user, " +
+        "mas um RESET ROLE voltaria ao dono. Configure DATABASE_APP_URL (npm run db:app-login)."
+    );
+  }
   const p = new pg.Pool({
     connectionString,
     max: 5,
@@ -57,6 +68,10 @@ function pool(): pg.Pool {
     // Vercel viva o suficiente para isso acontecer (Fluid compute).
     idleTimeoutMillis: 5_000,
     connectionTimeoutMillis: 10_000,
+    // Nenhuma consulta espera para sempre: uma conexão parada travaria também
+    // quem aguarda as promessas compartilhadas (seed inicial, segredo da sessão).
+    query_timeout: 20_000,
+    keepAlive: true,
   });
   attachDatabasePool(p);
   g.__tsPool = p;
@@ -80,40 +95,29 @@ function wrap(client: pg.PoolClient): Db {
   };
 }
 
-/**
- * Papel sem BYPASSRLS assumido em toda transação (ver migração 0001). O dono das
- * tabelas no Neon ignora a RLS; com SET LOCAL ROLE, as políticas passam a valer
- * até o fim da transação, inclusive através do pooler.
- */
-export const APP_ROLE = "app_user";
+/** Com DB_TRACE=1, cada transação escreve no log quantas idas ao banco fez e quanto tempo levou. */
+const TRACE = process.env.DB_TRACE === "1";
 
-async function setContext(client: pg.PoolClient, scope: Scope) {
-  await client.query(`SET LOCAL ROLE ${APP_ROLE}`);
-  let teacherId = "";
-  let studentId = "";
-  let system = "";
-  if (typeof scope === "string") teacherId = scope;
-  else if (scope && "system" in scope) system = "on";
-  else if (scope) {
-    teacherId = scope.teacherId;
-    studentId = scope.studentId ?? "";
-  }
-  await client.query(
-    `SELECT set_config('app.teacher_id', $1, true),
-            set_config('app.student_id', $2, true),
-            set_config('app.system', $3, true),
-            set_config('search_path', $4, true)`,
-    [teacherId, studentId, system, config.schema ?? "public"]
-  );
+function traced(client: pg.PoolClient): { client: pg.PoolClient; done: (label: string) => void } {
+  if (!TRACE) return { client, done: () => {} };
+  let count = 0;
+  const start = performance.now();
+  const original = client.query.bind(client) as (...args: unknown[]) => unknown;
+  const proxy = new Proxy(client, {
+    get(target, prop, receiver) {
+      if (prop === "query") return (...args: unknown[]) => (count++, original(...args));
+      return Reflect.get(target, prop, receiver);
+    },
+  });
+  return { client: proxy, done: (label) => console.log(`[db] ${label} idas=${count} ms=${(performance.now() - start).toFixed(1)}`) };
 }
 
-/** Executa fn numa transação com o contexto de RLS definido. */
 export async function transaction<T>(scope: Scope, fn: (db: Db) => Promise<T>, opts: { skipReady?: boolean } = {}): Promise<T> {
   if (!opts.skipReady) await ensureReady();
-  const client = await pool().connect();
+  const begin = beginStatement(scope, config.schema ?? "public"); // valida antes de conectar
+  const { client, done } = traced(await pool().connect());
   try {
-    await client.query("BEGIN");
-    await setContext(client, scope);
+    await client.query(begin);
     const result = await fn(wrap(client));
     await client.query("COMMIT");
     return result;
@@ -122,6 +126,7 @@ export async function transaction<T>(scope: Scope, fn: (db: Db) => Promise<T>, o
     throw err;
   } finally {
     client.release();
+    done("tx"); // depois de liberar: um erro no log não prende a conexão
   }
 }
 

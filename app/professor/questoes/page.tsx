@@ -1,23 +1,48 @@
 import Link from "next/link";
 import { Plus } from "lucide-react";
 import { requireTeacher } from "@/server/auth/session";
-import { passages, questions, subjects } from "@/server/db/repo";
+import { withScope } from "@/server/db/repo";
 import SubjectFilter from "@/components/teacher/SubjectFilter";
 import { Badge, ButtonLink, EmptyState, Notice, PageHeader, Select } from "@/components/ui";
 import { TYPE_LABELS, TYPE_SHORT } from "@/lib/question-types";
-import { QUESTION_TYPES } from "@/lib/types";
+import { QUESTION_TYPES, type QuestionFilters } from "@/lib/types";
 import { formatDate } from "@/lib/format";
 
 export const metadata = { title: "Banco de questões" };
+
+const LIMIT = 200;
+const STATUSES = ["active", "published", "draft", "archived"] as const;
 
 type SP = { q?: string; tipo?: string; hab?: string; nivel?: string; tag?: string; status?: string; salva?: string; disciplina?: string };
 
 export default async function QuestoesPage({ searchParams }: { searchParams: Promise<SP> }) {
   const { teacher } = await requireTeacher();
   const sp = await searchParams;
-  const [everything, ps, subjectList] = await Promise.all([questions.all(teacher.id), passages.all(teacher.id), subjects.all(teacher.id)]);
-  const subject = subjectList.find((x) => x.id === sp.disciplina);
-  const all = subject ? everything.filter((x) => x.subjectId === subject.id) : everything;
+  const status = (STATUSES as readonly string[]).includes(sp.status ?? "") ? (sp.status as QuestionFilters["status"]) : "active";
+  // Uma transação; a filtragem acontece no banco e a lista não traz conteúdo nem gabarito.
+  const { subjectList, subject, list, stats, ps } = await withScope(teacher.id, async (r) => {
+    const subjectList = await r.subjects.all();
+    const subject = subjectList.find((x) => x.id === sp.disciplina);
+    const filters: QuestionFilters = {
+      subjectId: subject?.id,
+      type: sp.tipo || undefined,
+      skill: sp.hab || undefined,
+      level: sp.nivel || undefined,
+      tag: sp.tag || undefined,
+      status,
+      text: sp.q?.trim() || undefined,
+      limit: LIMIT + 1,
+    };
+    return {
+      subjectList,
+      subject,
+      list: await r.questions.search(filters),
+      stats: await r.questions.stats(subject?.id),
+      ps: await r.passages.titles(),
+    };
+  });
+  const truncated = list.length > LIMIT;
+  if (truncated) list.length = LIMIT;
   // Habilidades e níveis: da disciplina escolhida, ou de todas (sem repetir).
   const skillOptions = [...new Map((subject ? [subject] : subjectList).flatMap((x) => x.skills).map((k) => [k.key, k])).values()];
   const levelOptions = [...new Map((subject ? [subject] : subjectList).flatMap((x) => x.levels).map((l) => [l.code, l])).values()];
@@ -25,23 +50,13 @@ export default async function QuestoesPage({ searchParams }: { searchParams: Pro
     subjectList.find((x) => x.id === subjectId)?.skills.find((k) => k.key === key)?.label ?? key;
   const subjectName = new Map(subjectList.map((x) => [x.id, x.name]));
   const passageTitle = new Map(ps.map((p) => [p.id, p.title]));
-  const status = sp.status ?? "active";
-  const q = (sp.q ?? "").toLowerCase();
-  const list = all
-    .filter((x) => (status === "active" ? x.status !== "archived" : x.status === status))
-    .filter((x) => !sp.tipo || x.type === sp.tipo)
-    .filter((x) => !sp.hab || x.skill === sp.hab)
-    .filter((x) => !sp.nivel || x.level === sp.nivel)
-    .filter((x) => !sp.tag || x.tags.includes(sp.tag))
-    .filter((x) => !q || x.prompt.toLowerCase().includes(q) || x.tags.some((t) => t.includes(q)))
-    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
-  const allTags = Array.from(new Set(all.flatMap((x) => x.tags))).sort();
+  const allTags = stats.tags;
 
   return (
     <>
       <PageHeader
         title="Banco de questões"
-        subtitle={`${all.filter((x) => x.status !== "archived").length} questões`}
+        subtitle={`${stats.active} questões`}
         actions={<ButtonLink href="/professor/questoes/nova"><Plus size={16} /> Nova questão</ButtonLink>}
       />
       {sp.salva && <div className="mb-4"><Notice variant="success">Questão salva.</Notice></div>}
@@ -77,6 +92,11 @@ export default async function QuestoesPage({ searchParams }: { searchParams: Pro
         <button className="rounded-lg bg-surface-raised px-3 py-2 text-sm font-medium hover:bg-line sm:col-start-6">Filtrar</button>
       </form>
 
+      {truncated && (
+        <div className="mb-3">
+          <Notice>Mostrando as {LIMIT} questões alteradas mais recentemente. Use os filtros para encontrar as outras.</Notice>
+        </div>
+      )}
       {list.length === 0 ? (
         <EmptyState title="Nenhuma questão encontrada">
           <Link href="/professor/questoes/nova" className="text-brand">Criar uma questão</Link>
