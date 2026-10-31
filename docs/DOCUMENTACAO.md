@@ -229,7 +229,7 @@ O diagrama de entidades está em [DIAGRAMA.md](DIAGRAMA.md#7-tabelas-e-relaçõe
 
 ## 7. Arquitetura técnica
 
-- **Stack:** Next.js 16 (App Router, Server Components, Server Actions, `proxy.ts`), React 19, TypeScript, Tailwind CSS 4, Zod (validação), lucide-react (ícones), PostgreSQL (Neon) com `pg` (node-postgres), sem ORM. E-mail com `nodemailer` (SMTP); arquivos no Vercel Blob privado (`@vercel/blob`).
+- **Stack:** Next.js 16.4 (App Router, Server Components, Server Actions, `proxy.ts`), React 19, TypeScript, Tailwind CSS 4, Zod (validação), lucide-react (ícones), PostgreSQL (Neon) com `pg` (node-postgres), sem ORM. E-mail com `nodemailer` (SMTP); arquivos no Vercel Blob privado (`@vercel/blob`).
 - **Pastas:**
 
 ```text
@@ -382,7 +382,7 @@ As variáveis `POSTGRES_*`, `PG*` e `NEON_AUTH_*` que a integração Neon-Vercel
   - as telas mais usadas (início, alunos, ficha, questões, correção, telas do aluno) já fazem uma transação com consultas específicas; telas menos usadas (agenda, relatórios, leituras, lista de atividades) ainda carregam tudo do professor e filtram no código;
   - o papel `app_login` existe na branch dev; em produção, enquanto `DATABASE_APP_URL` não for configurada, o app continua conectando como dono (com o aviso no log e no painel);
   - as tabelas `invitations`, `auth_tokens` e `rate_limits` não têm RLS: são procuradas pelo token ou pela chave antes de qualquer login.
-- **Dependências:** o `npm audit` aponta vulnerabilidades em pacotes que já estavam no projeto antes da Fase 2, inclusive no Next.js (versão 16.2.6). A atualização é recomendada numa mudança à parte (ver o relatório da Fase 2).
+- **Dependências:** em 31/10/2026 o `npm audit` não aponta nenhuma vulnerabilidade, depois da atualização para o Next.js 16.4.3 e o `zod` 4.6.7 (ver [RELATORIO-DEPENDENCIAS.md](RELATORIO-DEPENDENCIAS.md)). O `package.json` tem um `overrides` que força o `zod` 4.6.7 dentro do `@vercel/cli-config`, que fixa uma versão vulnerável; ele pode sair quando esse pacote for atualizado.
 - **Testes:** não há testes automáticos de ponta a ponta, nem auditoria de acessibilidade completa.
 
 ## 11. Contexto para avaliação

@@ -169,7 +169,7 @@ Os dados criados para esses testes foram apagados da dev no fim.
 - **Vercel Blob por OIDC:** ao criar os stores, a Vercel passou a ligá-los por OIDC (`BLOB_STORE_ID` e `BLOB_WEBHOOK_PUBLIC_KEY`, sem `BLOB_READ_WRITE_TOKEN`). O token de cliente que o upload usava exige o token fixo, então acrescentei o fluxo pré-assinado: a rota `/api/uploads/blob` troca a autorização assinada pelo servidor por uma URL pré-assinada (`handleUploadPresigned` + `issueSignedToken`, que aceitam OIDC). O download e a exclusão usam a credencial que existir. A chave dessa autorização passou a derivar do segredo da sessão, porque na Vercel o pedido e a rota podem rodar em instâncias diferentes.
 
 **Pendências:**
-- **Dependências com vulnerabilidades conhecidas, anteriores à Fase 2:** o `npm audit` aponta `next` (crítica, versão 16.2.6), `zod`, `postcss`, `sharp`, `nanoid` e outras. Recomendo atualizar numa mudança própria, com teste completo, porque inclui uma versão nova do Next. O `nodemailer` da Fase 2 foi fixado na 10.1.7, que corrige as falhas das versões anteriores.
+- **Dependências com vulnerabilidades conhecidas, anteriores à Fase 2:** o `npm audit` aponta `next` (crítica, versão 16.2.6), `zod`, `postcss`, `sharp`, `nanoid` e outras. Recomendo atualizar numa mudança própria, com teste completo, porque inclui uma versão nova do Next. **Atualização feita depois da Fase 2:** ver [RELATORIO-DEPENDENCIAS.md](RELATORIO-DEPENDENCIAS.md) (0 vulnerabilidades). O `nodemailer` da Fase 2 foi fixado na 10.1.7, que corrige as falhas das versões anteriores.
 - **Telas ainda com consultas amplas:** agenda, relatórios, leituras e a lista de atividades ainda carregam tudo do professor e filtram no código.
 - **Arquivos:**
   - não há antivírus;

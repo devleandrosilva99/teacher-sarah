@@ -16,15 +16,15 @@
   },
   "dependencies": {
     "@vercel/blob": "2.8.2",
-    "@vercel/functions": "^3.10.3",
+    "@vercel/functions": "^3.10.5",
     "lucide-react": "^1.16.0",
-    "next": "16.2.6",
+    "next": "16.4.3",
     "nodemailer": "10.1.7",
     "pg": "^8.23.1",
     "react": "19.2.4",
     "react-dom": "19.2.4",
     "server-only": "^0.0.1",
-    "zod": "^4.6.5"
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
@@ -36,5 +36,10 @@
     "tailwindcss": "^4",
     "tsx": "^4.23.15",
     "typescript": "^5"
+  },
+  "overrides": {
+    "@vercel/cli-config": {
+      "zod": "4.6.7"
+    }
   }
 }
