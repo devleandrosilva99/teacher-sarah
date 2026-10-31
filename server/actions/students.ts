@@ -8,7 +8,11 @@ import { requireTeacher } from "@/server/auth/session";
 import { isUuid, withScope } from "@/server/db/repo";
 import type { Student } from "@/lib/types";
 import { newId, nowIso } from "@/lib/format";
-import { deleteStudentTx } from "@/server/services/flows";
+import { deleteClassTx, deleteStudentTx } from "@/server/services/flows";
+import { mailAvailable, sendMail } from "@/server/mail";
+import { deleteObjectsAfterCommit } from "@/server/storage";
+import { inviteEmail } from "@/server/mail/templates";
+import { baseUrl } from "@/server/url";
 import type { FormState } from "./state";
 
 const str = (max: number) => z.string().trim().max(max).default("");
@@ -86,6 +90,16 @@ export async function saveStudent(_prev: FormState, formData: FormData): Promise
   redirect(`/professor/alunos/${result.student.id}${result.created ? "?novo=1" : ""}`);
 }
 
+function newInvitation(teacherId: string, st: Student) {
+  return {
+    token: randomBytes(24).toString("base64url"),
+    teacherId,
+    studentId: st.id,
+    email: st.email,
+    expiresAt: new Date(Date.now() + 7 * 86_400_000).toISOString(),
+  };
+}
+
 export async function createInvite(studentId: string): Promise<void> {
   const { teacher } = await requireTeacher();
   await withScope(teacher.id, async (r) => {
@@ -93,15 +107,33 @@ export async function createInvite(studentId: string): Promise<void> {
     if (!st || st.status !== "active") return;
     // Um link novo invalida os anteriores.
     await r.invitations.invalidateForStudent(studentId);
-    await r.invitations.put({
-      token: randomBytes(24).toString("base64url"),
-      teacherId: teacher.id,
-      studentId,
-      email: st.email,
-      expiresAt: new Date(Date.now() + 7 * 86_400_000).toISOString(),
-    });
+    await r.invitations.put(newInvitation(teacher.id, st));
   });
   revalidatePath(`/professor/alunos/${studentId}`);
+}
+
+/** Manda o link de acesso ao e-mail do aluno (usa o link válido ou gera um). */
+export async function emailInvite(studentId: string): Promise<void> {
+  const { teacher } = await requireTeacher();
+  const back = (result: string) => redirect(`/professor/alunos/${studentId}?email=${result}`);
+  if (!isUuid(studentId)) redirect("/professor/alunos");
+  if (!mailAvailable()) back("indisponivel");
+  const found = await withScope(teacher.id, async (r) => {
+    const st = await r.students.get(studentId);
+    if (!st || st.status !== "active") return null;
+    let inv = await r.invitations.validForStudent(studentId);
+    if (!inv) {
+      await r.invitations.invalidateForStudent(studentId);
+      const created = newInvitation(teacher.id, st);
+      await r.invitations.put(created);
+      inv = created;
+    }
+    return { st, inv };
+  });
+  if (!found) redirect("/professor/alunos");
+  const link = `${await baseUrl()}/convite/${found.inv.token}`;
+  const ok = await sendMail(inviteEmail(found.st.email, found.st.name, teacher.name, link, found.inv.expiresAt));
+  back(ok ? "enviado" : "falhou");
 }
 
 export async function setStudentStatus(studentId: string, status: "active" | "archived"): Promise<void> {
@@ -120,7 +152,9 @@ export async function setStudentStatus(studentId: string, status: "active" | "ar
  */
 export async function deleteStudent(studentId: string): Promise<void> {
   const { teacher } = await requireTeacher();
-  await withScope(teacher.id, (r) => deleteStudentTx(r, studentId));
+  const deleted = await withScope(teacher.id, (r) => deleteStudentTx(r, studentId));
+  // Depois da transação: se o armazenamento falhar, as chaves vão para o log e o aluno continua excluído.
+  if (deleted) await deleteObjectsAfterCommit(deleted.storageKeys, `exclusão do aluno ${studentId}`);
   revalidatePath("/professor", "layout");
   redirect("/professor/alunos?excluido=1");
 }
@@ -148,6 +182,7 @@ export async function saveClass(_prev: FormState, formData: FormData): Promise<F
       level: subject.levels.some((l) => l.code === level) ? level : "",
       description,
       studentIds,
+      archivedAt: existing?.archivedAt ?? "",
       createdAt: existing?.createdAt ?? nowIso(),
     });
   });
@@ -156,11 +191,21 @@ export async function saveClass(_prev: FormState, formData: FormData): Promise<F
   redirect(`/professor/turmas/${result.id}`);
 }
 
+export async function setClassArchived(classId: string, archived: boolean): Promise<void> {
+  const { teacher } = await requireTeacher();
+  if (isUuid(classId)) await withScope(teacher.id, (r) => r.classes.setArchived(classId, archived));
+  revalidatePath("/professor", "layout");
+  redirect(archived ? "/professor/turmas?arquivada=1" : `/professor/turmas/${classId}`);
+}
+
+/** Exclusão definitiva: só para turma sem nenhuma aula realizada (ver deleteClassTx). */
 export async function deleteClass(classId: string): Promise<void> {
   const { teacher } = await requireTeacher();
-  if (isUuid(classId)) await withScope(teacher.id, (r) => r.classes.remove(classId));
-  revalidatePath("/professor/turmas");
-  redirect("/professor/turmas");
+  if (!isUuid(classId)) redirect("/professor/turmas");
+  const result = await withScope(teacher.id, (r) => deleteClassTx(r, classId));
+  revalidatePath("/professor", "layout");
+  if ("error" in result && result.error === "has_done_lessons") redirect(`/professor/turmas/${classId}?erro=aulas`);
+  redirect("/professor/turmas?excluida=1");
 }
 
 function validCpf(value: string): boolean {

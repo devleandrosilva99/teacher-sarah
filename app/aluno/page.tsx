@@ -1,18 +1,22 @@
 import Link from "next/link";
 import { Video } from "lucide-react";
 import { requireStudent } from "@/server/auth/session";
-import { lessons } from "@/server/db/repo";
-import { studentRows, summarize } from "@/server/services/assignments";
+import { withScope } from "@/server/db/repo";
+import { studentSummaryRows, summarize } from "@/server/services/assignments";
 import AssignmentCard from "@/components/student/AssignmentCard";
-import { ButtonLink, Card, EmptyState, Stat } from "@/components/ui";
+import { ButtonLink, Card, EmptyState, Notice, Stat } from "@/components/ui";
 import { formatWeekdayTime } from "@/lib/format";
 
 export const metadata = { title: "Início" };
 
-export default async function AlunoHome() {
+export default async function AlunoHome({ searchParams }: { searchParams: Promise<{ senha?: string }> }) {
+  const { senha } = await searchParams;
   const { student, scope } = await requireStudent();
   // No escopo do aluno, a RLS só devolve as aulas dele e das turmas dele.
-  const [rows, ls] = await Promise.all([studentRows(scope, student.id), lessons.all(scope)]);
+  const { rows, ls } = await withScope(scope, async (r) => ({
+    rows: await studentSummaryRows(r, student.id),
+    ls: await r.lessons.upcoming(new Date(Date.now() - 86_400_000).toISOString()),
+  }));
   const sum = summarize(rows);
   const todo = rows.filter((r) => r.status === "not_started" || r.status === "in_progress" || (r.status === "overdue" && r.attemptsLeft > 0));
   const next = ls
@@ -22,6 +26,7 @@ export default async function AlunoHome() {
 
   return (
     <div className="flex flex-col gap-5">
+      {senha === "redefinida" && <Notice variant="success">Senha redefinida. As outras sessões abertas foram encerradas.</Notice>}
       {next && (
         <Card className="border-brand/40 bg-brand-soft">
           <div className="text-xs font-medium text-brand-ink">Próxima aula</div>

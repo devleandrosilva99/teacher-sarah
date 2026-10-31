@@ -1,6 +1,7 @@
 import { notFound, redirect } from "next/navigation";
 import { requireStudent } from "@/server/auth/session";
-import { assignments, submissions } from "@/server/db/repo";
+import { assignments, submissions, withScope } from "@/server/db/repo";
+import { fileInfoMap } from "@/lib/files";
 import { deadlineFor, publicQuestionsFor, rowFor } from "@/server/services/assignments";
 import ActivityPlayer from "@/components/student/ActivityPlayer";
 
@@ -17,6 +18,7 @@ export default async function FazerPage({ params }: { params: Promise<{ id: stri
 
   // Só o conteúdo público vai para o navegador: nada de gabarito.
   const questions = publicQuestionsFor(a, sub.id);
+  const files = a.questions.some((q) => q.type === "file_upload") ? fileInfoMap(await withScope(scope, (r) => r.files.forSubmission(sub.id))) : {};
   return (
     <ActivityPlayer
       submissionId={sub.id}
@@ -26,6 +28,7 @@ export default async function FazerPage({ params }: { params: Promise<{ id: stri
       passages={a.passages}
       initial={sub.responses as Record<string, Record<string, unknown>>}
       deadline={deadlineFor(a, sub)}
+      files={files}
     />
   );
 }

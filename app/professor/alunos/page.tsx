@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { Plus } from "lucide-react";
 import { requireTeacher } from "@/server/auth/session";
-import { assignments, students, subjects, submissions } from "@/server/db/repo";
+import { withScope } from "@/server/db/repo";
 import { mainLevel } from "@/lib/subjects";
 import { rowFor, summarize } from "@/server/services/assignments";
 import { Avatar, Badge, ButtonLink, EmptyState, Notice, PageHeader, scoreVariant } from "@/components/ui";
@@ -12,12 +12,12 @@ export const metadata = { title: "Alunos" };
 export default async function AlunosPage({ searchParams }: { searchParams: Promise<{ q?: string; arquivados?: string; excluido?: string }> }) {
   const { teacher } = await requireTeacher();
   const sp = await searchParams;
-  const [all, asgs, subs, subjectList] = await Promise.all([
-    students.all(teacher.id),
-    assignments.all(teacher.id),
-    submissions.all(teacher.id),
-    subjects.all(teacher.id),
-  ]);
+  const { all, asgs, subs, subjectList } = await withScope(teacher.id, async (r) => ({
+    all: await r.students.all(),
+    asgs: await r.assignments.summaries(),
+    subs: await r.submissions.summaries(),
+    subjectList: await r.subjects.all(),
+  }));
   const showArchived = sp.arquivados === "1";
   const q = (sp.q ?? "").toLowerCase();
   const list = all

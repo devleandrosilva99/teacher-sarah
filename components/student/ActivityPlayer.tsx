@@ -6,6 +6,7 @@ import { saveDraft, submitAttempt } from "@/server/actions/student";
 import { isAnswered } from "@/lib/question-types";
 import type { Passage, PublicQuestion } from "@/lib/types";
 import QuestionPlayer, { Media } from "@/components/questions/QuestionPlayer";
+import type { FileInfo } from "@/components/questions/FileAnswer";
 import { Button, Notice, cx } from "@/components/ui";
 
 type Responses = Record<string, Record<string, unknown>>;
@@ -30,6 +31,7 @@ export default function ActivityPlayer({
   passages,
   initial,
   deadline,
+  files,
 }: {
   submissionId: string;
   title: string;
@@ -38,6 +40,8 @@ export default function ActivityPlayer({
   passages: Passage[];
   initial: Responses;
   deadline: number | null;
+  /** Arquivos já anexados nesta tentativa (entrega de arquivo). */
+  files?: Record<string, FileInfo>;
 }) {
   const [responses, setResponses] = useState<Responses>(initial);
   const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
@@ -163,7 +167,7 @@ export default function ActivityPlayer({
                     <span className="text-xs text-ink-3">{q.points} pt</span>
                   </div>
                   <Media url={q.mediaUrl} />
-                  <QuestionPlayer question={q} value={responses[q.id] ?? {}} onChange={(v) => change(q.id, v)} />
+                  <QuestionPlayer question={q} value={responses[q.id] ?? {}} onChange={(v) => change(q.id, v)} files={files} submissionId={submissionId} />
                 </div>
               ))}
             </div>

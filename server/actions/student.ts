@@ -5,7 +5,7 @@ import { redirect } from "next/navigation";
 import { requireStudent } from "@/server/auth/session";
 import { withScope } from "@/server/db/repo";
 import { deadlineFor, rowFor } from "@/server/services/assignments";
-import { cleanResponses, GRACE_MS, loadOwnAttempt, submitAttemptTx } from "@/server/services/flows";
+import { cleanResponses, GRACE_MS, loadOwnAttempt, submitAttemptTx, verifiedFileResponses } from "@/server/services/flows";
 import { newId, nowIso } from "@/lib/format";
 
 // Todas as ações do aluno rodam no escopo dele: a RLS só deixa ler e gravar
@@ -53,7 +53,7 @@ export async function saveDraft(submissionId: string, responses: unknown): Promi
     if (!own || own.sub.status !== "in_progress") return { ok: false, error: "Esta tentativa não está mais aberta." };
     const deadline = deadlineFor(own.assignment, own.sub);
     if (deadline && Date.now() > deadline + GRACE_MS) return { ok: false, error: "O tempo acabou." };
-    await r.submissions.put({ ...own.sub, responses: cleanResponses(own.assignment, responses) });
+    await r.submissions.put({ ...own.sub, responses: await verifiedFileResponses(r, own.assignment, own.sub, cleanResponses(own.assignment, responses)) });
     return { ok: true };
   });
 }

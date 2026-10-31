@@ -4,13 +4,12 @@ import BottomNav from "@/components/nav/BottomNav";
 import { Avatar } from "@/components/ui";
 import { requireStudent } from "@/server/auth/session";
 import { logout } from "@/server/actions/auth";
-import { unreadCount } from "@/server/services/notify";
-import { subjects } from "@/server/db/repo";
+import { withScope } from "@/server/db/repo";
 import { mainLevel } from "@/lib/subjects";
 
 export default async function AlunoLayout({ children }: { children: React.ReactNode }) {
   const { user, student, teacher, scope } = await requireStudent();
-  const [unread, subjectList] = await Promise.all([unreadCount(user.id), subjects.all(scope)]);
+  const [unread, subjectList] = await withScope(scope, async (r) => [await r.notifications.unreadCount(user.id), await r.subjects.all()] as const);
   const level = mainLevel(student, subjectList);
   return (
     <div style={{ ["--brand" as string]: teacher.color } as React.CSSProperties} className="min-h-screen">

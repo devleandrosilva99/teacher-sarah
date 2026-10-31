@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { requireTeacher } from "@/server/auth/session";
-import { assignments, students, submissions } from "@/server/db/repo";
+import { assignments, students, submissions, withScope } from "@/server/db/repo";
+import { fileInfoMap } from "@/lib/files";
 import { saveGrading } from "@/server/actions/grading";
 import AnswerReview from "@/components/questions/AnswerReview";
 import SubmitButton from "@/components/SubmitButton";
@@ -18,6 +19,7 @@ export default async function CorrigirPage({ params, searchParams }: { params: P
   const [assignment, student] = await Promise.all([assignments.get(teacher.id, sub.assignmentId), students.get(teacher.id, sub.studentId)]);
   if (!assignment) notFound();
   const pByID = new Map(assignment.passages.map((p) => [p.id, p]));
+  const files = fileInfoMap(await withScope(teacher.id, (r) => r.files.forSubmission(sub.id)));
   const inProgress = sub.status === "in_progress";
   const pct = percent(sub.score, sub.maxScore);
 
@@ -42,7 +44,7 @@ export default async function CorrigirPage({ params, searchParams }: { params: P
           {assignment.questions.map((q, i) => {
             const a = sub.answers[q.id];
             return (
-              <AnswerReview key={q.id} index={i + 1} question={q} answer={a} showKey passage={q.passageId ? pByID.get(q.passageId) : undefined}>
+              <AnswerReview key={q.id} index={i + 1} question={q} answer={a} showKey passage={q.passageId ? pByID.get(q.passageId) : undefined} files={files}>
                 <div className="mt-3 flex flex-col gap-2 border-t border-line pt-3 sm:flex-row sm:items-start">
                   <label className="flex items-center gap-2 text-xs text-ink-2">
                     Nota

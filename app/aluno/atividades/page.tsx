@@ -1,5 +1,6 @@
 import { requireStudent } from "@/server/auth/session";
-import { studentRows } from "@/server/services/assignments";
+import { withScope } from "@/server/db/repo";
+import { studentSummaryRows } from "@/server/services/assignments";
 import AssignmentCard from "@/components/student/AssignmentCard";
 import { EmptyState, PageHeader } from "@/components/ui";
 
@@ -7,7 +8,7 @@ export const metadata = { title: "Atividades" };
 
 export default async function AtividadesAlunoPage() {
   const { student, scope } = await requireStudent();
-  const rows = await studentRows(scope, student.id);
+  const rows = await withScope(scope, (r) => studentSummaryRows(r, student.id));
   const open = rows.filter((r) => r.status === "not_started" || r.status === "in_progress" || r.status === "overdue");
   const done = rows.filter((r) => r.status === "submitted" || r.status === "graded");
   return (

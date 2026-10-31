@@ -42,6 +42,7 @@ export async function seed(db: Db): Promise<void> {
       name: "Administrador",
       blocked: false,
       createdAt: iso(-60),
+      emailVerifiedAt: iso(-60),
     });
   }
   if (process.env.SEED_DEMO === "false") return;
@@ -53,14 +54,14 @@ async function seedDemo(r: Repo): Promise<void> {
   const pw = await hashPassword(DEMO_PASSWORD);
 
   async function makeTeacher(name: string, email: string, slug: string, color: string, bio: string) {
-    const { teacher } = await createTeacherAccount(r, { name, email, passwordHash: pw, slug, bio, color });
+    const { teacher } = await createTeacherAccount(r, { name, email, passwordHash: pw, slug, bio, color, emailVerified: true });
     const english = (await r.subjects.all()).find((s) => s.teacherId === teacher.id)!;
     return { teacher, english };
   }
 
   async function makeStudent(t: Teacher, name: string, email: string, levels: Record<string, string>, extra: Partial<Student> = {}) {
     const userId = newId();
-    await r.users.create({ id: userId, email, passwordHash: pw, role: "student", name, blocked: false, createdAt: iso(-50) });
+    await r.users.create({ id: userId, email, passwordHash: pw, role: "student", name, blocked: false, createdAt: iso(-50), emailVerifiedAt: iso(-50) });
     return r.students.put({
       id: newId(),
       teacherId: t.id,
@@ -160,6 +161,7 @@ async function seedDemo(r: Repo): Promise<void> {
     level: "B1",
     description: "Grupo de conversação, terças às 19h.",
     studentIds: [lucas.id, rafael.id, julia.id],
+    archivedAt: "",
     createdAt: iso(-45),
   });
 
